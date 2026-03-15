@@ -2,7 +2,7 @@
 "use client";
 
 import { Product } from "@/lib/types";
-import { getCategoryName, categoryColors, categoryAccents } from "./utils";
+import { formatCurrency, getCategoryName, categoryStyles } from "./utils";
 
 interface Props {
   products: Product[];
@@ -14,79 +14,74 @@ interface Props {
 export function ProductGrid({ products, isLoading, onAdd, justAddedId }: Props) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="aspect-[3/4] rounded-2xl bg-muted animate-pulse" />
+      <div className="grid grid-cols-2 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="aspect-[3/2] bg-gray-100 rounded-xl animate-pulse" />
         ))}
       </div>
     );
   }
 
-  if (products.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-        <p className="text-lg font-medium">No products found</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-      {products.map((product, index) => {
+    <div className="grid grid-cols-2 gap-4">
+      {products.map((product) => {
         const category = getCategoryName(product);
-        const gradientClass = categoryColors[category] || categoryColors.default;
-        const accentClass = categoryAccents[category] || categoryAccents.default;
-        const isJustAdded = justAddedId === product.id;
+        const styles = categoryStyles[category] || categoryStyles.default;
+        const isAdded = justAddedId === product.id;
 
         return (
           <button
             key={product.id}
             onClick={() => onAdd(product)}
-            disabled={product.stock === 0}
-            className={`group relative aspect-[3/4] rounded-2xl border bg-gradient-to-br ${gradientClass} ${accentClass} p-4 flex flex-col justify-between text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-xl active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
-              isJustAdded ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
-            } animate-fade-in-up opacity-0`}
-            style={{ animationDelay: `${index * 50}ms` }}
+            className={`
+              relative w-full text-left rounded-xl border-2 overflow-hidden
+              transition-all duration-100 ease-in-out
+              focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
+              active:scale-[0.98] h-full flex flex-col
+              ${isAdded 
+                ? "ring-2 ring-blue-500 scale-[0.98] border-blue-400" 
+                : `${styles.bg} ${styles.border} hover:shadow-md hover:border-gray-300`
+              }
+            `}
           >
-            {/* Stock Badge */}
-            {product.stock === 0 ? (
-              <div className="absolute top-3 right-3 px-2 py-1 rounded-full bg-destructive/80 text-destructive-foreground text-[10px] font-bold uppercase tracking-wide">
-                Out of Stock
+            <div className={`h-1.5 w-full ${styles.bg.replace('50', '400')}`}></div>
+            
+            <div className="p-4 flex flex-col flex-1">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-1 min-w-0 pr-2">
+                  <h3 className="text-base font-bold text-gray-900 truncate leading-tight">
+                    {product.name}
+                  </h3>
+                </div>
+                <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${styles.bg} ${styles.text}`}>
+                  {category}
+                </span>
               </div>
-            ) : product.stock <= 5 ? (
-              <div className="absolute top-3 right-3 px-2 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-[10px] font-bold uppercase tracking-wide">
-                Low Stock
-              </div>
-            ) : null}
 
-            {/* Icon Container */}
-            <div className="flex-1 flex items-center justify-center">
-              <div className="w-16 h-20 rounded-lg bg-background/40 backdrop-blur border border-white/10 flex items-center justify-center group-hover:border-white/20 transition-colors overflow-hidden">
-                {product.image_url ? (
-                  <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-3xl opacity-80 group-hover:opacity-100 transition-opacity">
-                    🍷
+              <div className="mt-auto pt-2 flex justify-between items-center">
+                <p className={`text-xl font-extrabold ${styles.text.replace('900', '600')}`}>
+                  {formatCurrency(product.price)}
+                </p>
+                
+                {product.stock !== undefined && product.stock <= 10 && (
+                  <span className="text-xs font-medium text-gray-400 bg-white/80 px-2 py-0.5 rounded">
+                    {product.stock} left
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Info Footer */}
-            <div className="space-y-1.5 pt-2">
-              <div>
-                <p className="text-[10px] text-white/50 uppercase tracking-wider font-semibold">{category}</p>
-                <h3 className="font-bold text-white truncate text-sm">{product.name}</h3>
-                {product.sku && <p className="text-[10px] text-white/40 font-mono">{product.sku}</p>}
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <p className="text-lg font-bold text-primary">${product.price.toFixed(2)}</p>
-                <div className="w-7 h-7 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:bg-primary group-hover:border-primary transition-all">
-                  <svg className="w-3.5 h-3.5 text-white group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-              </div>
+            <div className={`
+              absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-[2px] pointer-events-none
+              transition-opacity duration-200
+              ${isAdded ? "opacity-100" : "opacity-0"}
+            `}>
+              <span className="flex items-center gap-2 text-blue-600 font-bold text-lg">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Added
+              </span>
             </div>
           </button>
         );

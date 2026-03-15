@@ -1,28 +1,30 @@
-// src/components/pos/utils.ts
-import { Product } from "@/lib/types";
+ // src/components/pos/utils.ts
 
-export const getCategoryName = (product: Product): string => {
-  if (!product.categories) return "Other";
-  if (Array.isArray(product.categories)) {
-    return product.categories[0]?.name || "Other";
+export function formatCurrency(amount: number | undefined | null): string {
+  // Safety check: if amount is not a valid number, return 0.00
+  if (typeof amount !== 'number' || isNaN(amount)) {
+    return "Ksh 0.00";
   }
-  return product.categories.name || "Other";
-};
 
-export const categoryColors: Record<string, string> = {
-  Whisky: "from-amber-600/20 to-amber-800/20",
-  Champagne: "from-rose-600/20 to-rose-800/20",
-  Vodka: "from-sky-600/20 to-sky-800/20",
-  Tequila: "from-emerald-600/20 to-emerald-800/20",
-  Cognac: "from-orange-600/20 to-orange-800/20",
-  default: "from-muted/40 to-muted",
-};
+  return new Intl.NumberFormat('en-KE', {
+    style: 'currency',
+    currency: 'KES',
+  }).format(amount);
+}
 
-export const categoryAccents: Record<string, string> = {
-  Whisky: "border-amber-500/30 hover:border-amber-500/50",
-  Champagne: "border-rose-500/30 hover:border-rose-500/50",
-  Vodka: "border-sky-500/30 hover:border-sky-500/50",
-  Tequila: "border-emerald-500/30 hover:border-emerald-500/50",
-  Cognac: "border-orange-500/30 hover:border-orange-500/50",
-  default: "border-border hover:border-border/80",
+export function getCategoryName(product: any): string {
+  if (product.categories && typeof product.categories === 'object') {
+    return product.categories.name || 'Uncategorized';
+  }
+  return 'Uncategorized';
+}
+
+// Smart Colors for Categories
+export const categoryStyles: Record<string, { bg: string; border: string; text: string }> = {
+  "Spirits": { bg: "bg-violet-50", border: "border-violet-200", text: "text-violet-900" },
+  "Beers": { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-900" },
+  "Wines": { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-900" },
+  "Soft Drinks": { bg: "bg-sky-50", border: "border-sky-200", text: "text-sky-900" },
+  "Snacks": { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-900" },
+  "default": { bg: "bg-gray-50", border: "border-gray-200", text: "text-gray-900" }
 };

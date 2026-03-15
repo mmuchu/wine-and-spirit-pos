@@ -1,13 +1,16 @@
  // src/components/pos/CartPanel.tsx
 "use client";
-import { CartItem } from "@/lib/types";
 
-interface Props {
+import { CartItem } from "@/lib/types";
+import { formatCurrency } from "./utils";
+
+interface CartPanelProps {
   cart: CartItem[];
   itemCount: number;
   subtotal: number;
   tax: number;
   total: number;
+  taxRate?: number;
   isProcessing: boolean;
   onUpdateQty: (id: string, delta: number) => void;
   onRemove: (id: string) => void;
@@ -15,107 +18,148 @@ interface Props {
   onCheckout: () => void;
 }
 
-export function CartPanel({ cart, itemCount, subtotal, tax, total, isProcessing, onUpdateQty, onRemove, onClear, onCheckout }: Props) {
+export function CartPanel({
+  cart,
+  itemCount,
+  subtotal,
+  tax,
+  total,
+  taxRate = 16,
+  isProcessing,
+  onUpdateQty,
+  onRemove,
+  onClear,
+  onCheckout,
+}: CartPanelProps) {
   return (
-    <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-lg flex flex-col h-[calc(100vh-120px)]">
-      {/* Header */}
-      <div className="p-5 border-b border-border flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-            <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="font-semibold text-foreground">Current Sale</h2>
-            <p className="text-xs text-muted-foreground">
-              {itemCount} {itemCount === 1 ? "item" : "items"}
-            </p>
-          </div>
+    // h-full ensures it fills the parent container's fixed height
+    <div className="flex flex-col h-full bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      
+      {/* Header - Fixed Height (shrink-0) */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="flex items-center justify-center w-7 h-7 bg-blue-600 text-white rounded-full text-sm font-bold">
+            {itemCount}
+          </span>
+          <span className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+            Current Sale
+          </span>
         </div>
         {cart.length > 0 && (
-          <button onClick={onClear} className="text-xs text-muted-foreground hover:text-destructive transition-colors font-medium">
-            Clear All
+          <button
+            onClick={onClear}
+            className="px-3 py-1 text-xs font-bold text-red-500 hover:bg-red-50 rounded transition-colors"
+          >
+            CLEAR ALL
           </button>
         )}
       </div>
 
-      {/* Items List (Scrollable) */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
+      {/* Items List - Scrolls independently (flex-1 overflow-y-auto min-h-0) */}
+      <div className="flex-1 overflow-y-auto min-h-0 bg-white">
         {cart.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <svg className="w-12 h-12 mb-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-            </svg>
-            <p className="text-sm font-medium">Cart is empty</p>
-            <p className="text-xs text-muted-foreground mt-1">Click products to add</p>
+          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+              <svg className="w-6 h-6 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <p className="text-sm font-bold text-gray-500">No items in cart</p>
+            <p className="text-xs text-gray-400 mt-1">Tap products to add</p>
           </div>
         ) : (
-          <ul className="divide-y divide-border">
+          <div className="divide-y divide-gray-100">
             {cart.map((item) => (
-              <li key={item.id} className="p-4 flex gap-4 hover:bg-muted/20 transition-colors">
-                {/* Product Image/Icon */}
-                <div className="w-14 h-14 rounded-xl bg-muted border border-border flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-lg font-bold text-muted-foreground">{item.name.charAt(0)}</span>
-                  )}
+              <div key={item.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-gray-800 truncate">{item.name}</p>
+                  <p className="text-xs text-gray-400 font-mono mt-0.5">
+                    {formatCurrency(item.price)} × {item.quantity}
+                  </p>
                 </div>
-
-                {/* Details */}
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <p className="font-medium text-foreground truncate text-sm">{item.name}</p>
-                  <p className="text-xs text-muted-foreground font-mono truncate">{item.sku}</p>
-                  <p className="text-sm text-primary font-semibold">${item.price.toFixed(2)}</p>
-                </div>
-
-                {/* Actions */}
-                <div className="flex flex-col items-end justify-between">
-                  <button onClick={() => onRemove(item.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1 -m-1">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                
+                <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
+                  <button
+                    onClick={() => onUpdateQty(item.id, -1)}
+                    className="w-7 h-7 flex items-center justify-center text-gray-600 hover:bg-white hover:text-red-500 rounded transition-colors"
+                  >
+                    <span className="text-lg font-bold leading-none">−</span>
                   </button>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => onUpdateQty(item.id, -1)} className="w-7 h-7 rounded-lg bg-muted border border-border text-muted-foreground hover:bg-muted/80 flex items-center justify-center transition-colors text-xs font-bold">-</button>
-                    <span className="w-8 text-center text-sm font-medium text-foreground">{item.quantity}</span>
-                    <button onClick={() => onUpdateQty(item.id, 1)} className="w-7 h-7 rounded-lg bg-muted border border-border text-muted-foreground hover:bg-muted/80 flex items-center justify-center transition-colors text-xs font-bold">+</button>
-                  </div>
+                  <span className="w-8 text-center text-sm font-bold text-gray-900">
+                    {item.quantity}
+                  </span>
+                  <button
+                    onClick={() => onUpdateQty(item.id, 1)}
+                    className="w-7 h-7 flex items-center justify-center text-gray-600 hover:bg-white hover:text-green-500 rounded transition-colors"
+                  >
+                    <span className="text-lg font-bold leading-none">+</span>
+                  </button>
                 </div>
-              </li>
+
+                <div className="w-24 text-right shrink-0">
+                  <p className="text-sm font-bold text-gray-900">
+                    {formatCurrency(item.price * item.quantity)}
+                  </p>
+                  <button
+                    onClick={() => onRemove(item.id)}
+                    className="text-[10px] font-semibold text-gray-300 hover:text-red-500 transition-colors mt-0.5"
+                  >
+                    REMOVE
+                  </button>
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
 
-      {/* Footer Totals */}
-      {cart.length > 0 && (
-        <div className="border-t border-border p-5 space-y-4 bg-card flex-shrink-0">
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-muted-foreground"><span>Tax (8%)</span><span>${tax.toFixed(2)}</span></div>
-            <div className="flex justify-between text-lg font-bold text-foreground pt-2 border-t border-border">
-              <span>Total</span><span className="text-primary">${total.toFixed(2)}</span>
-            </div>
+      {/* Footer - Sticky Bottom (shrink-0 prevents it from shrinking) */}
+      <div className="shrink-0 border-t border-gray-200 bg-white">
+        {/* Totals */}
+        <div className="px-4 py-3 space-y-1.5 bg-gray-50">
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>Subtotal</span>
+            <span className="font-semibold">{formatCurrency(subtotal)}</span>
           </div>
-
-          {/* Checkout Button */}
-          <button 
-            onClick={onCheckout} 
-            disabled={isProcessing} 
-            className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-zinc-900 font-bold text-lg hover:opacity-90 transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait"
-          >
-            {isProcessing ? "Processing..." : "Complete Sale"}
-          </button>
-
-          {/* Quick Actions */}
-          <div className="grid grid-cols-2 gap-3">
-            <button className="py-2.5 rounded-xl bg-muted border border-border text-muted-foreground text-sm font-medium hover:bg-muted/80 transition-all">Hold</button>
-            <button className="py-2.5 rounded-xl bg-muted border border-border text-muted-foreground text-sm font-medium hover:bg-muted/80 transition-all">Discount</button>
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>VAT ({taxRate}%)</span>
+            <span className="font-semibold">{formatCurrency(tax)}</span>
           </div>
         </div>
-      )}
+        
+        <div className="px-4 py-3 flex justify-between items-center border-t border-gray-200 bg-white">
+          <span className="text-base font-extrabold text-gray-900 uppercase">Total</span>
+          <span className="text-2xl font-black text-blue-600">{formatCurrency(total)}</span>
+        </div>
+
+        {/* Action Button */}
+        <div className="p-4 pt-2 bg-white">
+          <button
+            onClick={onCheckout}
+            disabled={isProcessing || cart.length === 0}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-4 rounded-xl font-bold text-base
+                       hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-200 disabled:text-gray-400 transition-all
+                       shadow-lg hover:shadow-xl"
+          >
+            {isProcessing ? (
+              <>
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                PROCESSING...
+              </>
+            ) : (
+              <>
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                COMPLETE SALE
+              </>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

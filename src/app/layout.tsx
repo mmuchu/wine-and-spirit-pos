@@ -1,14 +1,6 @@
  // src/app/layout.tsx
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Sidebar } from "@/components/layout/Sidebar";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
-
-export const metadata: Metadata = {
-  title: "Wine & Spirits POS",
-  description: "Professional Point of Sale System",
-};
 
 export default function RootLayout({
   children,
@@ -16,9 +8,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-background text-foreground`}>
-        {children}
+    <html lang="en" className="light">
+      <body className="min-h-screen bg-background font-sans antialiased">
+        <div className="flex h-screen overflow-hidden">
+          {/* Sidebar Navigation */}
+          <Sidebar />
+          
+          {/* Main Content Area */}
+          <main className="flex-1 overflow-y-auto pt-16 lg:pt-0">
+            {children}
+          </main>
+        </div>
       </body>
     </html>
   );
