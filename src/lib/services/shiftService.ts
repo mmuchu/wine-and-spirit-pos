@@ -9,12 +9,15 @@ export const shiftService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
+    // FIX: Use limit(1) to prevent crashing on duplicates
     const { data, error } = await supabase
       .from('shifts')
       .select('*')
       .eq('user_id', user.id)
       .eq('status', 'open')
-      .maybeSingle();
+      .order('opened_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(); 
 
     if (error) throw error;
     return data;
@@ -99,7 +102,6 @@ export const shiftService = {
 
     if (error) throw error;
     
-    // FIX: Added explicit types to reduce parameters
     return data?.reduce((sum: number, sale: any) => sum + (sale.total_amount || 0), 0) || 0;
   },
 
