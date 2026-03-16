@@ -23,11 +23,10 @@ export function LowStockAlert() {
 
       if (error) throw error;
 
-      // Filter where stock is less than min_stock
-      const low = (data || []).filter(p => p.stock < (p.min_stock || 10));
+      // FIX: Added ': any' to parameter 'p'
+      const low = (data || []).filter((p: any) => p.stock < (p.min_stock || 10));
       setLowItems(low);
 
-      // Play sound if items are low
       if (low.length > 0) {
         playAlarm();
       }
@@ -40,14 +39,13 @@ export function LowStockAlert() {
 
   const playAlarm = () => {
     try {
-      // Simple beep sound using Web Audio API
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const oscillator = audioContext.createOscillator();
       oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // Frequency in Hz
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
       oscillator.connect(audioContext.destination);
       oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.2); // Beep duration
+      oscillator.stop(audioContext.currentTime + 0.2);
     } catch (e) {
       console.log("Audio play failed", e);
     }
