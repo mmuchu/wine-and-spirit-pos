@@ -1,11 +1,11 @@
- // src/app/inventory/page.tsx
+// src/app/inventory/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Product } from "@/lib/types";
 import { formatCurrency, getCategoryName } from "@/components/pos/utils";
-import { ProductFormModal } from "@/components/inventory/ProductFormModal";
+import { ProductFormModal } from "@/components/inventory/ProductFormModal"; // Assuming you saved the previous modal
 import { stockService } from "@/lib/services/stockService";
 
 export default function InventoryPage() {
@@ -14,10 +14,11 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   
+  // Modals
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false); // NEW
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null); // NEW
 
   useEffect(() => {
     fetchProducts();
@@ -25,10 +26,9 @@ export default function InventoryPage() {
 
   const fetchProducts = async () => {
     try {
-      // Explicitly select min_stock to ensure it returns
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, price, stock, min_stock, is_active, sku, category_id, categories(name)")
+        .select("*, categories(name)")
         .order("name", { ascending: true });
       
       if (error) throw error;
@@ -54,6 +54,7 @@ export default function InventoryPage() {
     fetchProducts();
   };
 
+  // NEW: Stock In Logic
   const handleOpenStockIn = (product: Product) => {
     setSelectedProduct(product);
     setIsStockInModalOpen(true);
@@ -63,7 +64,7 @@ export default function InventoryPage() {
     if (!selectedProduct) return;
     try {
       await stockService.addStock(selectedProduct.id, quantity, notes);
-      fetchProducts();
+      fetchProducts(); // Refresh stock count
       setIsStockInModalOpen(false);
       setSelectedProduct(null);
     } catch (error) {
@@ -112,8 +113,7 @@ export default function InventoryPage() {
                 <th className="text-left p-3 font-semibold">Product</th>
                 <th className="text-left p-3 font-semibold">Category</th>
                 <th className="text-right p-3 font-semibold">Price</th>
-                <th className="text-center p-3 font-semibold">Current Stock</th>
-                <th className="text-center p-3 font-semibold">Min Level</th>
+                <th className="text-right p-3 font-semibold">Stock</th>
                 <th className="text-center p-3 font-semibold">Status</th>
                 <th className="text-right p-3 font-semibold">Actions</th>
               </tr>
@@ -121,70 +121,53 @@ export default function InventoryPage() {
             <tbody className="divide-y">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={6} className="p-8 text-center text-muted-foreground">
                     No products found.
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((product) => {
-                  // Safe access to stock and min_stock
-                  const currentStock = product.stock ?? 0;
-                  const minStock = product.min_stock ?? 10;
-                  
-                  // Determine Status
-                  let statusColor = "bg-green-100 text-green-800";
-                  let statusText = "In Stock";
-                  
-                  if (currentStock <= 0) {
-                    statusColor = "bg-red-100 text-red-800";
-                    statusText = "Out of Stock";
-                  } else if (currentStock < minStock) {
-                    statusColor = "bg-yellow-100 text-yellow-800";
-                    statusText = "Low Stock";
-                  }
-
-                  return (
-                    <tr key={product.id} className="hover:bg-muted/10">
-                      <td className="p-3">
-                        <div className="font-medium">{product.name}</div>
-                        <div className="text-xs text-muted-foreground">{product.sku || 'No SKU'}</div>
-                      </td>
-                      <td className="p-3 text-muted-foreground">
-                        {getCategoryName(product)}
-                      </td>
-                      <td className="p-3 text-right font-medium">
-                        {formatCurrency(product.price)}
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className={`font-bold ${currentStock < minStock ? 'text-red-600' : ''}`}>
-                          {currentStock}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center text-gray-500">
-                        {minStock}
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColor}`}>
-                          {statusText}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right space-x-2">
-                        <button
-                          onClick={() => handleOpenStockIn(product)}
-                          className="text-green-600 hover:underline font-medium text-xs"
-                        >
-                          Stock In
-                        </button>
-                        <button
-                          onClick={() => handleOpenProductModal(product)}
-                          className="text-blue-600 hover:underline font-medium text-xs"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
+                filteredProducts.map((product) => (
+                  <tr key={product.id} className="hover:bg-muted/10">
+                    <td className="p-3">
+                      <div className="font-medium">{product.name}</div>
+                      <div className="text-xs text-muted-foreground">{product.sku || 'No SKU'}</div>
+                    </td>
+                    <td className="p-3 text-muted-foreground">
+                      {getCategoryName(product)}
+                    </td>
+                    <td className="p-3 text-right font-medium">
+                      {formatCurrency(product.price)}
+                    </td>
+                    <td className="p-3 text-right">
+                      <span className={`font-medium ${product.stock < 10 ? 'text-red-600' : ''}`}>
+                        {product.stock}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                        product.is_active 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {product.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right space-x-2">
+                      <button
+                        onClick={() => handleOpenStockIn(product)}
+                        className="text-green-600 hover:underline font-medium text-xs"
+                      >
+                        Stock In
+                      </button>
+                      <button
+                        onClick={() => handleOpenProductModal(product)}
+                        className="text-blue-600 hover:underline font-medium text-xs"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -199,7 +182,7 @@ export default function InventoryPage() {
         product={editingProduct}
       />
 
-      {/* Stock In Modal */}
+      {/* NEW: Stock In Modal */}
       <StockInModal
         isOpen={isStockInModalOpen}
         onClose={() => setIsStockInModalOpen(false)}
@@ -210,7 +193,7 @@ export default function InventoryPage() {
   );
 }
 
-// Stock In Modal Component
+// NEW: Stock In Modal Component
 function StockInModal({ isOpen, onClose, product, onSubmit }: {
   isOpen: boolean;
   onClose: () => void;

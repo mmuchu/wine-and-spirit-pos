@@ -2,16 +2,24 @@
 
 export interface Product {
   id: string;
-  organization_id?: string;
-  category_id?: string;
+  organization_id: string;
+  category_id: string | null;
   name: string;
   price: number;
-  sku?: string | null;
+  sku: string | null;
   stock: number;
-  image_url?: string | null;
+  min_stock: number; // Added for Low Stock Alerts
+  image_url: string | null;
   is_active: boolean;
-  categories?: { name: string };
-  phone?: string | null; // <--- Added for M-Pesa records
+  categories: { name: string } | null;
 }
 
-export type CartItem = Product & { quantity: number };
+export interface CartItem extends Product {
+  quantity: number;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  organization_id: string;
+}

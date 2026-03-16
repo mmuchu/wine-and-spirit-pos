@@ -8,6 +8,9 @@ import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
 import { PaymentModal } from "@/components/pos/PaymentModal";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
+import { CustomerModal } from "@/components/pos/CustomerModal";
+import { customerService } from "@/lib/services/customerService";
+import { offlineService } from "@/lib/services/offlineService";
 
 const TAX_RATE = 0.16;
 
@@ -22,38 +25,82 @@ export default function POSPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   
   const [isTaxEnabled, setIsTaxEnabled] = useState(true);
+  const [isCreditEnabled, setIsCreditEnabled] = useState(false);
   
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<any>(null);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   
+  // Offline State
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+
   const justAddedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch Products
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("id, organization_id, category_id, name, price, sku, stock, image_url, is_active, categories ( name )")
-          .eq("is_active", true)
-          .order("name", { ascending: true });
-        
-        if (error) throw error;
-        
-        const list = (data || []).map((item) => ({ 
-          ...item, 
-          price: Number(item.price) 
-        })) as Product[];
-        
-        setProducts(list);
-      } catch (error) {
-        setToast({ message: "Failed to load products", type: "error" });
-      } finally {
-        setLoading(false);
-      }
+    initData();
+    
+    const handleOnline = () => {
+      setIsOnline(true);
+      showToast("Back Online! Syncing...", "success");
+      syncData(); 
     };
-    fetchProducts();
-  }, [supabase]);
+    const handleOffline = () => {
+      setIsOnline(false);
+      showToast("You are Offline.", "error");
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Initialize Data: Load Local -> Then Sync
+  const initData = async () => {
+    try {
+      // 1. Try loading from local DB first (fast)
+      const localProducts = await offlineService.getLocalProducts();
+      if (localProducts.length > 0) {
+        setProducts(localProducts);
+        setLoading(false); // Show local data immediately
+      }
+      
+      // 2. Sync with server
+      await syncData();
+      
+    } catch (err) {
+      console.error("Init Error:", err);
+      showToast("Failed to load products", "error");
+      setLoading(false);
+    }
+  };
+
+  // Sync Data: Server -> Local DB -> State
+  const syncData = async () => {
+    try {
+      await offlineService.syncProducts(); // This throws if fails
+      const freshProducts = await offlineService.getLocalProducts();
+      setProducts(freshProducts);
+      
+      const count = await offlineService.getPendingCount();
+      setPendingCount(count);
+      
+      setLoading(false);
+    } catch (err) {
+      console.error("Sync Error:", err);
+      // If sync fails, we rely on whatever is in local DB.
+      // If local DB is empty, we show error.
+      const localProducts = await offlineService.getLocalProducts();
+      if (localProducts.length === 0) {
+         showToast("Could not load products. Check connection/permissions.", "error");
+      }
+      setLoading(false);
+    }
+  };
 
   // Calculate totals
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -99,48 +146,10 @@ export default function POSPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (justAddedTimeout.current) clearTimeout(justAddedTimeout.current);
-    };
-  }, []);
-
-  // Inventory Update
-  const updateInventory = async (items: CartItem[]) => {
-    try {
-      const updates = items.map((item) => 
-        supabase.rpc('decrement_stock', { 
-          product_id: item.id, 
-          qty: item.quantity 
-        })
-      );
-      await Promise.all(updates);
-      
-      const { data } = await supabase
-        .from("products")
-        .select("id, stock")
-        .in('id', items.map(i => i.id));
-        
-      if (data) {
-        setProducts(prev => prev.map(p => {
-          const updated = data.find(d => d.id === p.id);
-          return updated ? { ...p, stock: updated.stock } : p;
-        }));
-      }
-    } catch (error) {
-      console.error("Inventory update failed:", error);
-    }
-  };
-
   // Payment Success
   const handlePaymentSuccess = async (method: string, transactionRef?: string, phone?: string) => {
     setIsPaymentOpen(false);
-    
-    if (!cart.length) {
-      showToast("Cannot complete an empty sale.", "error");
-      return;
-    }
-
+    if (!cart.length) return;
     setIsProcessing(true);
     try {
       const organizationId = cart[0]?.organization_id;
@@ -157,32 +166,21 @@ export default function POSPage() {
         items: cart,
         payment_method: method,
         status: saleStatus,
+        created_at: new Date().toISOString()
       };
 
-      const { data: saleData, error: saleError } = await supabase
-        .from("sales")
-        .insert(saleRecord)
-        .select("id")
-        .single();
-
-      if (saleError) throw saleError;
+      // Use Offline Service
+      const result = await offlineService.processSale(saleRecord);
       
-      const saleId = saleData.id;
-
-      const { error: paymentError } = await supabase.from("payments").insert({
-        sale_id: saleId,
-        amount: total,
-        method: method,
-        transaction_ref: transactionRef ?? null,
-        phone_number: method === "M-Pesa" ? (phone ?? null) : null,
-      });
-
-      if (paymentError) throw paymentError;
+      // Update UI
+      const freshProducts = await offlineService.getLocalProducts();
+      setProducts(freshProducts);
       
-      await updateInventory(cart);
+      const count = await offlineService.getPendingCount();
+      setPendingCount(count);
 
       const receiptData = {
-        id: saleId,
+        id: result.id,
         items: cart,
         total: Number(total),
         subtotal: Number(subtotal),
@@ -194,17 +192,16 @@ export default function POSPage() {
       clearCart();
       setLastSaleData(receiptData);
       setIsReceiptOpen(true);
-
-      if (method === "M-Pesa") {
-        showToast("STK Push sent. Sale pending confirmation.", "success");
+      
+      if (result.offline) {
+        showToast("Saved Locally (Offline).", "success");
       } else {
-        showToast(`Sale completed successfully!`, "success");
+        showToast("Sale Completed!", "success");
       }
 
     } catch (error) {
       const err = error as any;
-      const message = err?.message || err?.details || "Failed to complete sale";
-      showToast(message, "error");
+      showToast(err?.message || "Failed to process sale", "error");
     } finally {
       setIsProcessing(false);
     }
@@ -213,16 +210,19 @@ export default function POSPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {toast && (
-        <div
-          className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white ${
-            toast.type === "success" ? "bg-emerald-500" : "bg-destructive"
-          }`}
-        >
+        <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white ${toast.type === "success" ? "bg-emerald-500" : "bg-destructive"}`}>
           {toast.message}
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-6 p-4 lg:p-6">
+      {/* OFFLINE BANNER */}
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-yellow-500 text-black text-center py-2 text-sm font-bold print:hidden">
+          OFFLINE MODE: Data will sync when connection is restored ({pendingCount} pending)
+        </div>
+      )}
+
+      <div className="flex flex-col lg:flex-row gap-6 p-4 lg:p-6 pt-10">
         <section className="flex-1 min-w-0 pb-20 lg:pb-0">
           <ProductGrid
             products={products}
@@ -232,32 +232,30 @@ export default function POSPage() {
           />
         </section>
 
-        {/* FIX: Strict Flex Column Layout for Sidebar */}
         <section className="w-full lg:w-96 flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)]">
           
-          {/* Tax Toggle - Fixed Height */}
-          <div className="bg-card border rounded-lg p-3 flex items-center justify-between shrink-0">
-            <div>
-              <p className="font-medium text-sm">VAT (16%)</p>
-              <p className="text-xs text-muted-foreground">
-                {isTaxEnabled ? "Enabled" : "Disabled"}
-              </p>
+          <div className="bg-card border rounded-lg p-3 shrink-0 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-sm">VAT (16%)</p>
+                <p className="text-xs text-muted-foreground">{isTaxEnabled ? "Enabled" : "Disabled"}</p>
+              </div>
+              <button onClick={() => setIsTaxEnabled(!isTaxEnabled)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isTaxEnabled ? "bg-green-600" : "bg-gray-300"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isTaxEnabled ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
             </div>
-            <button
-              onClick={() => setIsTaxEnabled(!isTaxEnabled)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                isTaxEnabled ? "bg-green-600" : "bg-gray-300"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  isTaxEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
+
+            <div className="flex items-center justify-between border-t pt-3">
+              <div>
+                <p className="font-medium text-sm">Allow Credit</p>
+                <p className="text-xs text-muted-foreground">{isCreditEnabled ? "On Credit" : "Cash Only"}</p>
+              </div>
+              <button onClick={() => setIsCreditEnabled(!isCreditEnabled)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isCreditEnabled ? "bg-blue-600" : "bg-gray-300"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isCreditEnabled ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </div>
           </div>
 
-          {/* CartPanel Wrapper - Fills remaining height and provides flex context */}
           <div className="flex-1 min-h-0 flex flex-col">
             <CartPanel
               cart={cart}
@@ -271,6 +269,7 @@ export default function POSPage() {
               onRemove={removeFromCart}
               onClear={clearCart}
               onCheckout={() => cart.length > 0 && setIsPaymentOpen(true)}
+              isCreditMode={isCreditEnabled}
             />
           </div>
         </section>
@@ -282,7 +281,7 @@ export default function POSPage() {
         total={total}
         items={cart}
         onComplete={handlePaymentSuccess}
-        onStkSent={() => showToast("STK Push sent! Check your phone.", "success")}
+        onStkSent={() => showToast("STK Push sent!", "success")}
       />
 
       <ReceiptModal
