@@ -2,9 +2,7 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const stockService = {
-  // ... existing methods ...
-
-  // Get stock snapshot (Product ID -> Quantity)
+  
   async getStockSnapshot() {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -14,13 +12,13 @@ export const stockService = {
     if (error) throw error;
     
     const snapshot: Record<string, number> = {};
-    data?.forEach(p => {
+    // FIX: Added : any to parameter p
+    data?.forEach((p: any) => {
       snapshot[p.id] = p.stock;
     });
     return snapshot;
   },
 
-  // NEW: Get sales counts for a specific time range
   async getSalesCountInRange(startTime: string, endTime: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -32,7 +30,7 @@ export const stockService = {
     if (error) throw error;
 
     const counts: Record<string, number> = {};
-    data?.forEach(sale => {
+    data?.forEach((sale: any) => {
       const items = sale.items as any[];
       items?.forEach((item: any) => {
         counts[item.id] = (counts[item.id] || 0) + item.quantity;
@@ -41,7 +39,6 @@ export const stockService = {
     return counts;
   },
 
-  // NEW: Get purchases (stock in) for a specific time range
   async getPurchasesCountInRange(startTime: string, endTime: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -53,15 +50,13 @@ export const stockService = {
     if (error) throw error;
 
     const counts: Record<string, number> = {};
-    data?.forEach(mov => {
+    data?.forEach((mov: any) => {
       counts[mov.product_id] = (counts[mov.product_id] || 0) + mov.quantity;
     });
     return counts;
   },
   
-  // Existing methods used for active shift...
   async getShiftSalesCount(shiftOpenedAt: string) {
-    // Used for active shift (from opened_at until now)
     const supabase = createClient();
     const { data, error } = await supabase
       .from('sales')
@@ -69,7 +64,7 @@ export const stockService = {
       .gte('created_at', shiftOpenedAt);
       if (error) throw error;
       const counts: Record<string, number> = {};
-      data?.forEach(sale => {
+      data?.forEach((sale: any) => {
         const items = sale.items as any[];
         items?.forEach((item: any) => {
           counts[item.id] = (counts[item.id] || 0) + item.quantity;
@@ -88,7 +83,7 @@ export const stockService = {
     if (error) throw error;
 
     const counts: Record<string, number> = {};
-    data?.forEach(mov => {
+    data?.forEach((mov: any) => {
       counts[mov.product_id] = (counts[mov.product_id] || 0) + mov.quantity;
     });
     return counts;
