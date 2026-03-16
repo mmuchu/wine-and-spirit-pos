@@ -13,6 +13,7 @@ export interface LocalProduct {
   name: string;
   price: number;
   stock: number;
+  min_stock: number; // ADDED
   category_id: string | null;
   categories: { name: string } | null;
   image_url: string | null;

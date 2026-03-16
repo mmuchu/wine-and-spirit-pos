@@ -4,35 +4,32 @@ import { db, QueuedSale } from "@/lib/db";
 import { Product } from "@/lib/types";
 
 export const offlineService = {
-  // 1. DOWNLOAD: Pull products from Supabase to Local DB
   async syncProducts() {
     const supabase = createClient();
-    
-    // Fetch from Supabase
-    const { data, error } = await supabase
-      .from('products')
-      .select('*, categories(name)')
-      .eq('is_active', true);
-    
-    // If error, THROW it so the UI can catch it
-    if (error) {
-      console.error("Supabase Sync Error:", error);
-      throw error;
-    }
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*, categories(name)')
+        .eq('is_active', true);
+      
+      if (error) throw error;
 
-    // Save to Local DB
-    if (data) {
-      await db.products.clear();
-      // Add a timestamp for sync
-      const timestamped = data.map((p: any) => ({ ...p, updatedAt: Date.now() }));
-      await db.products.bulkAdd(timestamped);
-      console.log(`Synced ${data.length} products locally`);
+      if (data) {
+        await db.products.clear();
+        // Ensure min_stock exists
+        const timestamped = data.map((p: any) => ({ 
+          ...p, 
+          min_stock: p.min_stock || 10, // Default if missing
+          updatedAt: Date.now() 
+        }));
+        await db.products.bulkAdd(timestamped);
+        console.log(`Synced ${data.length} products locally`);
+      }
+    } catch (err) {
+      console.error("Failed to sync products", err);
     }
   },
 
-  // ... (rest of the file remains the same as before)
-  
-  // 2. UPLOAD: Try to send sale to Supabase, or queue if offline
   async processSale(salePayload: any) {
     const isOnline = navigator.onLine;
 
@@ -49,7 +46,6 @@ export const offlineService = {
       }
     }
 
-    // OFFLINE MODE
     const queueItem: QueuedSale = {
       payload: salePayload,
       status: 'pending',
@@ -65,15 +61,20 @@ export const offlineService = {
     if (!navigator.onLine) return;
     const pending = await db.salesQueue.where('status').equals('pending').toArray();
     if (pending.length === 0) return;
-    
+
+    console.log(`Syncing ${pending.length} pending sales...`);
+
     const supabase = createClient();
+    
     for (const item of pending) {
       try {
         const { error } = await supabase.from('sales').insert(item.payload);
         if (error) throw error;
+        
         await db.salesQueue.update(item.id!, { status: 'synced' });
+        console.log(`Sale ${item.id} synced.`);
       } catch (err) {
-        console.error(`Sync failed for sale ${item.id}`, err);
+        console.error(`Failed to sync sale ${item.id}`, err);
       }
     }
   },
@@ -90,7 +91,12 @@ export const offlineService = {
   },
 
   async getLocalProducts(): Promise<Product[]> {
-    return await db.products.toArray() as Product[];
+    const data = await db.products.toArray();
+    // Map to ensure default values for safety
+    return data.map(p => ({
+        ...p,
+        min_stock: p.min_stock || 10
+    })) as Product[];
   },
 
   async getPendingCount(): Promise<number> {
