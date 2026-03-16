@@ -9,7 +9,6 @@ import { expenseService } from "@/lib/services/expenseService";
 export default function ReportsPage() {
   const supabase = createClient();
   
-  // State for Summary Data
   const [stats, setStats] = useState({
     totalSales: 0,
     totalTax: 0,
@@ -21,11 +20,8 @@ export default function ReportsPage() {
     transactionCount: 0,
   });
   
-  // State for Transactions List
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Filter State
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'all'>('today');
 
   useEffect(() => {
@@ -47,7 +43,7 @@ export default function ReportsPage() {
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         break;
       default:
-        startDate = new Date(2020, 0, 1); // All time
+        startDate = new Date(2020, 0, 1);
     }
     return startDate.toISOString();
   };
@@ -57,7 +53,6 @@ export default function ReportsPage() {
       setLoading(true);
       const startDate = getDateFilter();
 
-      // 1. Fetch Sales
       const { data: salesData, error } = await supabase
         .from("sales")
         .select("id, created_at, total_amount, tax_amount, payment_method, status")
@@ -66,22 +61,20 @@ export default function ReportsPage() {
 
       if (error) throw error;
 
-      // 2. Calculate Sales Stats (Fixed TypeScript "any" issue)
-      const totalSales = salesData?.reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
-      const totalTax = salesData?.reduce((sum: number, s) => sum + (s.tax_amount || 0), 0) || 0;
-      const cashSales = salesData?.filter(s => s.payment_method === 'Cash').reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
-      const mpesaSales = salesData?.filter(s => s.payment_method === 'M-Pesa').reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
-      const creditSales = salesData?.filter(s => s.payment_method === 'Credit').reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
+      // FIX: Added ': any' to parameter 's'
+      const totalSales = salesData?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
+      const totalTax = salesData?.reduce((sum: number, s: any) => sum + (s.tax_amount || 0), 0) || 0;
+      const cashSales = salesData?.filter((s: any) => s.payment_method === 'Cash').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
+      const mpesaSales = salesData?.filter((s: any) => s.payment_method === 'M-Pesa').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
+      const creditSales = salesData?.filter((s: any) => s.payment_method === 'Credit').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
 
-      // 3. Fetch Expenses
       const { data: expensesData } = await supabase
         .from('expenses')
         .select('amount')
         .gte('date', startDate);
       
-      const totalExpenses = expensesData?.reduce((sum: number, e) => sum + Number(e.amount), 0) || 0;
+      const totalExpenses = expensesData?.reduce((sum: number, e: any) => sum + Number(e.amount), 0) || 0;
 
-      // 4. Set Stats
       setStats({
         totalSales,
         totalTax,
@@ -110,7 +103,6 @@ export default function ReportsPage() {
           <p className="text-sm text-gray-500 mt-1">Comprehensive overview of business performance.</p>
         </div>
 
-        {/* Date Filter Tabs */}
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
           {(['today', 'week', 'month', 'all'] as const).map((range) => (
             <button
@@ -135,7 +127,6 @@ export default function ReportsPage() {
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
-            {/* Total Revenue */}
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex justify-between items-start">
                 <p className="text-xs font-semibold text-gray-400 uppercase">Total Revenue</p>
@@ -147,7 +138,6 @@ export default function ReportsPage() {
               <p className="text-xs text-gray-400 mt-1">{stats.transactionCount} transactions</p>
             </div>
 
-            {/* Cash Sales */}
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex justify-between items-start">
                 <p className="text-xs font-semibold text-gray-400 uppercase">Cash Sales</p>
@@ -158,7 +148,6 @@ export default function ReportsPage() {
               <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(stats.cashSales)}</p>
             </div>
 
-            {/* M-Pesa Sales */}
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex justify-between items-start">
                 <p className="text-xs font-semibold text-gray-400 uppercase">M-Pesa</p>
@@ -169,7 +158,6 @@ export default function ReportsPage() {
               <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(stats.mpesaSales)}</p>
             </div>
 
-            {/* Expenses */}
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
               <div className="flex justify-between items-start">
                 <p className="text-xs font-semibold text-gray-400 uppercase">Expenses</p>
@@ -182,23 +170,19 @@ export default function ReportsPage() {
 
           </div>
 
-          {/* Profit & Tax Row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             {/* Net Profit */}
              <div className={`p-6 rounded-xl border shadow-sm ${stats.netProfit >= 0 ? 'bg-black text-white' : 'bg-red-50 border-red-200'}`}>
                 <p className={`text-sm font-medium ${stats.netProfit >= 0 ? 'text-gray-300' : 'text-red-500'}`}>Net Profit</p>
                 <p className="text-3xl font-bold mt-1">{formatCurrency(stats.netProfit)}</p>
                 <p className={`text-xs mt-2 ${stats.netProfit >= 0 ? 'text-gray-400' : 'text-red-400'}`}>Revenue minus expenses</p>
              </div>
 
-             {/* Tax Collected */}
              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <p className="text-sm font-medium text-gray-500">Tax Collected (VAT)</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.totalTax)}</p>
                 <p className="text-xs text-gray-400 mt-2">Ready for remittance</p>
              </div>
 
-             {/* Credit Sales */}
              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <p className="text-sm font-medium text-gray-500">Credit Given (Debts)</p>
                 <p className="text-2xl font-bold text-orange-500 mt-1">{formatCurrency(stats.creditSales)}</p>
@@ -206,7 +190,6 @@ export default function ReportsPage() {
              </div>
           </div>
 
-          {/* Transactions Table */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b bg-gray-50">
               <h3 className="font-semibold text-gray-900">Transaction Details</h3>

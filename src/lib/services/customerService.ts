@@ -14,11 +14,16 @@ export const customerService = {
 
   async addCustomer(name: string, phone?: string) {
     const supabase = createClient();
+    
+    // FIX: If phone is empty string, send null. 
+    // Postgres allows multiple NULLs, but not multiple "empty strings".
+    const cleanPhone = phone && phone.trim() !== "" ? phone.trim() : null;
+
     const { data, error } = await supabase
       .from('customers')
       .insert({ 
         name, 
-        phone, 
+        phone: cleanPhone, 
         organization_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' 
       })
       .select()
@@ -30,7 +35,6 @@ export const customerService = {
   async recordDebt(customerId: string, saleId: string, amount: number) {
     const supabase = createClient();
     
-    // 1. Create the debt record
     const { error: debtError } = await supabase
       .from('debts')
       .insert({
@@ -43,7 +47,6 @@ export const customerService = {
       
     if (debtError) throw debtError;
 
-    // 2. Update customer balance via RPC (Atomic update)
     const { error: rpcError } = await supabase.rpc('increment_customer_balance', {
       c_id: customerId,
       amount: amount
@@ -52,19 +55,14 @@ export const customerService = {
     if (rpcError) throw rpcError;
   },
 
-  // NEW: Record a repayment
   async recordRepayment(customerId: string, amount: number) {
     const supabase = createClient();
 
-    // 1. Reduce customer balance
     const { error: rpcError } = await supabase.rpc('decrement_customer_balance', {
       c_id: customerId,
       amount: amount
     });
     
     if (rpcError) throw rpcError;
-
-    // Note: In a full system, you would also update specific 'debts' rows here.
-    // For now, we reduce the total balance.
   }
 };
