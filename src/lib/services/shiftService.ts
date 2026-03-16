@@ -44,7 +44,6 @@ export const shiftService = {
     return data;
   },
 
-  // Updated to accept varianceNotes
   async closeShift(shiftId: string, closingCash: number, closingStock: Record<string, number>, varianceNotes?: string) {
     const supabase = createClient();
     
@@ -92,14 +91,16 @@ export const shiftService = {
   async getShiftSales(shiftId: string, openedAt: string) {
     const supabase = createClient();
     const { data, error } = await supabase
-      .from('sales')
-      .select('total_amount')
-      .eq('payment_method', 'Cash')
-      .eq('status', 'completed')
-      .gte('created_at', openedAt);
+      .from("sales")
+      .select("total_amount")
+      .eq("payment_method", "Cash")
+      .eq("status", "completed")
+      .gte("created_at", openedAt);
 
     if (error) throw error;
-    return data?.reduce((sum, sale) => sum + (sale.total_amount || 0), 0) || 0;
+    
+    // FIX: Added explicit types to reduce parameters
+    return data?.reduce((sum: number, sale: any) => sum + (sale.total_amount || 0), 0) || 0;
   },
 
   async getShiftHistory() {
