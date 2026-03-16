@@ -1,24 +1,28 @@
  // src/app/layout.tsx
-import { Sidebar } from "@/components/layout/Sidebar";
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "Kenyan Spirit POS",
+  description: "Point of Sale System",
+  icons: {
+    icon: "/icon.svg", // Use the SVG
+  },
+  manifest: "/manifest.json",
+};
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="en" className="light">
-      <body className="min-h-screen bg-background font-sans antialiased">
-        <div className="flex h-screen overflow-hidden">
-          {/* Sidebar Navigation */}
-          <Sidebar />
-          
-          {/* Main Content Area */}
-          <main className="flex-1 overflow-y-auto pt-16 lg:pt-0">
-            {children}
-          </main>
-        </div>
+    <html lang="en" className="h-full">
+      <body className={`${inter.className} h-full bg-gray-50`}>
+        {children}
       </body>
     </html>
   );
