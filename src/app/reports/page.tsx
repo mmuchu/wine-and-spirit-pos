@@ -66,21 +66,20 @@ export default function ReportsPage() {
 
       if (error) throw error;
 
-      // 2. Calculate Sales Stats
-      const totalSales = salesData?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
-      const totalTax = salesData?.reduce((sum, s) => sum + (s.tax_amount || 0), 0) || 0;
-      const cashSales = salesData?.filter(s => s.payment_method === 'Cash').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
-      const mpesaSales = salesData?.filter(s => s.payment_method === 'M-Pesa').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
-      const creditSales = salesData?.filter(s => s.payment_method === 'Credit').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+      // 2. Calculate Sales Stats (Fixed TypeScript "any" issue)
+      const totalSales = salesData?.reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
+      const totalTax = salesData?.reduce((sum: number, s) => sum + (s.tax_amount || 0), 0) || 0;
+      const cashSales = salesData?.filter(s => s.payment_method === 'Cash').reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
+      const mpesaSales = salesData?.filter(s => s.payment_method === 'M-Pesa').reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
+      const creditSales = salesData?.filter(s => s.payment_method === 'Credit').reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
 
-      // 3. Fetch Expenses (Simplified: Total for now, ideally should filter by date too)
-      // Note: We assume getExpenses filters by month in the service, for now we use raw query for simplicity
+      // 3. Fetch Expenses
       const { data: expensesData } = await supabase
         .from('expenses')
         .select('amount')
         .gte('date', startDate);
       
-      const totalExpenses = expensesData?.reduce((sum, e) => sum + Number(e.amount), 0) || 0;
+      const totalExpenses = expensesData?.reduce((sum: number, e) => sum + Number(e.amount), 0) || 0;
 
       // 4. Set Stats
       setStats({

@@ -4,6 +4,7 @@
 import { CartItem } from "@/lib/types";
 import { formatCurrency } from "./utils";
 
+// Define the properties the component accepts
 interface CartPanelProps {
   cart: CartItem[];
   itemCount: number;
@@ -16,7 +17,7 @@ interface CartPanelProps {
   onRemove: (id: string) => void;
   onClear: () => void;
   onCheckout: () => void;
-  isCreditMode?: boolean;
+  isCreditMode?: boolean; // Optional prop for credit mode styling
 }
 
 export function CartPanel({
@@ -35,6 +36,7 @@ export function CartPanel({
 }: CartPanelProps) {
   return (
     <div className="flex flex-col h-full bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0 bg-gray-50">
         <div className="flex items-center gap-3">
@@ -72,13 +74,11 @@ export function CartPanel({
           <div className="divide-y divide-gray-50">
             {cart.map((item) => (
               <div key={item.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/50 transition-colors">
-                {/* Item Details */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-gray-900 truncate">{item.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(item.price)} each</p>
                 </div>
                 
-                {/* Quantity Controls */}
                 <div className="flex items-center gap-1 shrink-0 bg-gray-100 rounded-lg p-1">
                   <button
                     onClick={() => onUpdateQty(item.id, -1)}
@@ -86,7 +86,7 @@ export function CartPanel({
                   >
                     −
                   </button>
-              <span className="w-8 text-center text-sm font-bold text-gray-900">
+                  <span className="w-8 text-center text-sm font-bold text-gray-900">
                     {item.quantity}
                   </span>
                   <button
@@ -97,14 +97,12 @@ export function CartPanel({
                   </button>
                 </div>
 
-                {/* Total Price */}
                 <div className="w-24 text-right shrink-0">
                   <p className="text-base font-bold text-gray-900">
                     {formatCurrency(item.price * item.quantity)}
                   </p>
                 </div>
 
-                {/* Remove Button */}
                 <button
                   onClick={() => onRemove(item.id)}
                   className="w-8 h-8 rounded flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all shrink-0"
@@ -119,9 +117,8 @@ export function CartPanel({
         )}
       </div>
 
-      {/* Footer - Fixed Height */}
+      {/* Footer */}
       <div className="shrink-0 border-t border-gray-200 bg-gray-50">
-        {/* Totals */}
         <div className="px-5 py-3 space-y-1.5 text-xs">
           <div className="flex justify-between text-gray-500">
             <span>Subtotal</span>
@@ -137,7 +134,6 @@ export function CartPanel({
           </div>
         </div>
 
-        {/* CTA Button */}
         <div className="p-4 pt-2 bg-gradient-to-b from-gray-50 to-gray-100">
           <button
             onClick={onCheckout}
