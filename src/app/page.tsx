@@ -8,7 +8,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Kenyan Spirit POS",
   description: "Point of Sale System",
-  manifest: "/manifest.json", // We will create this next
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
