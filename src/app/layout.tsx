@@ -24,6 +24,7 @@ export default function RootLayout({
     <html lang="en" className="h-full">
       <body className={`${inter.className} h-full bg-gray-50`}>
         <Sidebar />
+        {/* lg:pl-72 adds padding on large screens so content isn't hidden behind the fixed sidebar */}
         <main className="lg:pl-72 min-h-screen">
           {children}
         </main>
