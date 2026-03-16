@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect } from "react"; // FIXED: Import restored
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { shiftService } from "@/lib/services/shiftService";
 import { ShiftModal } from "@/components/shifts/ShiftModal";
@@ -31,10 +31,14 @@ export function Sidebar() {
   // Shift State
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open');
+  const [expectedCash, setExpectedCash] = useState(0);
   
   // Stock Reconciliation State
   const [isStockReconOpen, setIsStockReconOpen] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  const [pendingClosingCash, setPendingClosingCash] = useState<number>(0);
+  const [pendingCashNotes, setPendingCashNotes] = useState<string>("");
 
   useEffect(() => {
     const getUser = async () => {
@@ -57,8 +61,9 @@ export function Sidebar() {
     try {
       const shift = await shiftService.getCurrentShift();
       setCurrentShift(shift);
-    } catch (err) {
-      console.error("Error checking shift", err);
+    } catch (err: any) {
+      // Improved Error Logging
+      console.error("Error checking shift:", err?.message || err);
     }
   };
 
@@ -70,32 +75,41 @@ export function Sidebar() {
 
   const handleShiftAction = async () => {
     if (currentShift) {
-      // CLOSING: Go directly to the Combined Report Modal
       setIsStockReconOpen(true);
     } else {
-      // OPENING: Open simple Cash Modal
       setIsShiftModalOpen(true);
     }
   };
 
-  // Used ONLY for Opening Shift now
-  const handleCashConfirm = async (amount: number) => {
+  const handleCashConfirm = async (amount: number, notes?: string) => {
     setIsShiftModalOpen(false);
-    try {
-      const newShift = await shiftService.openShift(amount);
-      setCurrentShift(newShift);
-    } catch (error) {
-      console.error("Shift error:", error);
-      alert("Failed to start shift.");
+    
+    if (shiftMode === 'open') {
+      try {
+        const newShift = await shiftService.openShift(amount);
+        setCurrentShift(newShift);
+      } catch (error) {
+        console.error("Shift error:", error);
+        alert("Failed to start shift.");
+      }
+    } else {
+      setPendingClosingCash(amount);
+      setPendingCashNotes(notes || "");
+      setIsStockReconOpen(true);
     }
   };
 
-  // Handles the combined Cash + Stock report submission
-  const handleStockReconConfirm = async (closingStock: Record<string, number>, notes: string, closingCash: number) => {
+  const handleStockReconConfirm = async (closingStock: Record<string, number>, stockNotes: string) => {
     try {
-      await shiftService.closeShift(currentShift.id, closingCash, closingStock, notes);
+      const finalNotes = [
+        pendingCashNotes ? `CASH VARIANCE: ${pendingCashNotes}` : "",
+        stockNotes ? `STOCK VARIANCE: ${stockNotes}` : ""
+      ].filter(Boolean).join(" | ");
+
+      await shiftService.closeShift(currentShift.id, pendingClosingCash, closingStock, finalNotes);
       setCurrentShift(null);
       setIsStockReconOpen(false);
+      setPendingCashNotes("");
       alert("Shift Closed Successfully!");
     } catch (error) {
       console.error("Error closing shift:", error);
@@ -224,8 +238,6 @@ export function Sidebar() {
       </aside>
 
       {/* Modals */}
-      
-      {/* 1. Shift Modal - ONLY for Opening Cash */}
       <ShiftModal
         isOpen={isShiftModalOpen}
         onClose={() => setIsShiftModalOpen(false)}
@@ -234,7 +246,6 @@ export function Sidebar() {
         expectedCash={0}
       />
 
-      {/* 2. Combined Report Modal - For Closing Cash + Stock */}
       <StockReconciliationModal
         isOpen={isStockReconOpen}
         onClose={() => setIsStockReconOpen(false)}
@@ -336,5 +347,3 @@ function LogoutIcon(props: any) {
     </svg>
   );
 }
- 
- 
