@@ -1,4 +1,4 @@
-// src/lib/services/expenseService.ts
+ // src/lib/services/expenseService.ts
 import { createClient } from "@/lib/supabase/client";
 
 export const expenseService = {
@@ -44,6 +44,7 @@ export const expenseService = {
 
     if (error) throw error;
     
-    return data?.reduce((sum, exp) => sum + Number(exp.amount), 0) || 0;
+    // FIX: Added type 'number' to sum
+    return data?.reduce((sum: number, exp: any) => sum + Number(exp.amount), 0) || 0;
   }
 };
