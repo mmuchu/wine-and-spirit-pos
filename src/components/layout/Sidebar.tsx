@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { shiftService } from "@/lib/services/shiftService";
 import { ShiftModal } from "@/components/shifts/ShiftModal";
 import { StockReconciliationModal } from "@/components/shifts/StockReconciliationModal";
+import { ShiftSummaryModal } from "@/components/shifts/ShiftSummaryModal"; // Import new modal
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: HomeIcon },
@@ -31,12 +32,16 @@ export function Sidebar() {
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open');
-  const [expectedCash, setExpectedCash] = useState(0);
   
   const [isStockReconOpen, setIsStockReconOpen] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [pendingClosingCash, setPendingClosingCash] = useState<number>(0);
   const [pendingCashNotes, setPendingCashNotes] = useState<string>("");
+  
+  // New state for Summary Modal
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [closedShiftData, setClosedShiftData] = useState<any>(null);
+  const [shiftSalesData, setShiftSalesData] = useState<any[]>([]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -103,11 +108,25 @@ export function Sidebar() {
         stockNotes ? `STOCK VARIANCE: ${stockNotes}` : ""
       ].filter(Boolean).join(" | ");
 
-      await shiftService.closeShift(currentShift.id, pendingClosingCash, closingStock, finalNotes);
+      // 1. Close the shift
+      const result = await shiftService.closeShift(currentShift.id, pendingClosingCash, closingStock, finalNotes);
+      
+      // 2. Fetch sales for this shift to show in summary
+      const { data: sales } = await supabase
+        .from('sales')
+        .select('payment_method, total_amount')
+        .gte('created_at', currentShift.opened_at);
+
+      // 3. Set data for summary modal
+      setClosedShiftData(result);
+      setShiftSalesData(sales || []);
+      setIsSummaryOpen(true);
+
+      // 4. Clear active shift state
       setCurrentShift(null);
       setIsStockReconOpen(false);
       setPendingCashNotes("");
-      alert("Shift Closed Successfully!");
+      
     } catch (error) {
       console.error("Error closing shift:", error);
       alert("Failed to close shift.");
@@ -140,7 +159,7 @@ export function Sidebar() {
         />
       )}
 
-      {/* Sidebar - NOTE: lg:static is REMOVED here */}
+      {/* Sidebar */}
       <aside className={`
         fixed top-0 left-0 z-50 h-full w-72 bg-white border-r border-gray-200
         transform transition-transform duration-300 ease-in-out
@@ -249,6 +268,14 @@ export function Sidebar() {
         onConfirm={handleStockReconConfirm}
         shift={currentShift}
         products={products}
+      />
+
+      {/* NEW: Shift Summary Modal */}
+      <ShiftSummaryModal
+        isOpen={isSummaryOpen}
+        onClose={() => setIsSummaryOpen(false)}
+        shiftData={closedShiftData}
+        salesData={shiftSalesData}
       />
     </>
   );

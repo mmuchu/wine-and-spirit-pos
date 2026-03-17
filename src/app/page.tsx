@@ -62,10 +62,8 @@ export default function DashboardPage() {
   return (
     <div className="p-6 lg:p-8 space-y-8">
       
-      {/* Alerts Section */}
       <LowStockAlert />
 
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
@@ -79,72 +77,65 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Main Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Total Revenue</p>
-          <p className="text-3xl font-bold text-gray-900 mt-2">{formatCurrency(stats.totalSales)}</p>
-          <p className="text-xs text-gray-400 mt-4">{stats.transactionCount} transactions</p>
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-40">
+          <div>
+            <p className="text-sm font-medium text-gray-500 mb-1">Total Revenue</p>
+            <p className="text-2xl font-bold text-gray-900 tracking-tight">{formatCurrency(stats.totalSales)}</p>
+          </div>
+          <div className="border-t border-gray-100 pt-3 mt-4">
+            <p className="text-xs text-gray-400">{stats.transactionCount} transactions</p>
+          </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">Total Expenses</p>
-          <p className="text-3xl font-bold text-red-500 mt-2">{formatCurrency(stats.totalExpenses)}</p>
-          <Link href="/expenses" className="text-xs text-blue-600 hover:underline mt-4 block">View details</Link>
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-40">
+          <div>
+            <p className="text-sm font-medium text-gray-500 mb-1">Total Expenses</p>
+            <p className="text-2xl font-bold text-red-500 tracking-tight">{formatCurrency(stats.totalExpenses)}</p>
+          </div>
+          <div className="border-t border-gray-100 pt-3 mt-4">
+            <Link href="/expenses" className="text-xs text-blue-600 hover:underline">View details</Link>
+          </div>
         </div>
 
-        <div className={`p-6 rounded-xl border shadow-sm ${stats.netProfit >= 0 ? 'bg-black text-white' : 'bg-red-50 border-red-200'}`}>
-          <p className={`text-sm font-medium ${stats.netProfit >= 0 ? 'text-gray-300' : 'text-red-500'}`}>Net Profit</p>
-          <p className="text-3xl font-bold mt-2">{formatCurrency(stats.netProfit)}</p>
-          <p className={`text-xs mt-4 ${stats.netProfit >= 0 ? 'text-gray-400' : 'text-red-400'}`}>Revenue minus expenses</p>
+        <div className={`p-6 rounded-xl border shadow-sm flex flex-col justify-between h-40 ${stats.netProfit >= 0 ? 'bg-black text-white' : 'bg-red-50 border-red-200'}`}>
+          <div>
+            <p className={`text-sm font-medium mb-1 ${stats.netProfit >= 0 ? 'text-gray-300' : 'text-red-500'}`}>Net Profit</p>
+            <p className={`text-2xl font-bold tracking-tight ${stats.netProfit >= 0 ? 'text-white' : 'text-red-600'}`}>{formatCurrency(stats.netProfit)}</p>
+          </div>
+          <div className={`border-t pt-3 mt-4 ${stats.netProfit >= 0 ? 'border-gray-700' : 'border-red-100'}`}>
+            <p className={`text-xs ${stats.netProfit >= 0 ? 'text-gray-400' : 'text-red-400'}`}>Revenue minus expenses</p>
+          </div>
         </div>
-
       </div>
 
-      {/* Chart & Quick Actions Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Chart takes 2 columns */}
         <div className="lg:col-span-2">
           <SalesTrendChart />
         </div>
-
-        {/* Quick Actions take 1 column */}
         <div className="space-y-6">
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <h3 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h3>
               <div className="grid grid-cols-2 gap-4">
                 <Link href="/pos" className="flex flex-col items-center gap-2 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition group">
-                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition">
-                    <CartIcon className="w-5 h-5 text-gray-700" />
-                  </div>
+                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition"><CartIcon className="w-5 h-5 text-gray-700" /></div>
                   <span className="font-medium text-xs text-gray-700">New Sale</span>
                 </Link>
-                
                 <Link href="/inventory" className="flex flex-col items-center gap-2 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition group">
-                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition">
-                    <BoxIcon className="w-5 h-5 text-gray-700" />
-                  </div>
+                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition"><BoxIcon className="w-5 h-5 text-gray-700" /></div>
                   <span className="font-medium text-xs text-gray-700">Inventory</span>
                 </Link>
-                
                 <Link href="/reports" className="flex flex-col items-center gap-2 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition group">
-                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition">
-                    <ChartIcon className="w-5 h-5 text-gray-700" />
-                  </div>
+                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition"><ChartIcon className="w-5 h-5 text-gray-700" /></div>
                   <span className="font-medium text-xs text-gray-700">Reports</span>
                 </Link>
-                
                 <Link href="/expenses" className="flex flex-col items-center gap-2 p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition group">
-                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition">
-                    <ExpenseIcon className="w-5 h-5 text-gray-700" />
-                  </div>
+                  <div className="p-2 bg-white rounded-lg shadow-sm group-hover:shadow-md transition"><ExpenseIcon className="w-5 h-5 text-gray-700" /></div>
                   <span className="font-medium text-xs text-gray-700">Expenses</span>
                 </Link>
               </div>
             </div>
-
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <h3 className="text-lg font-bold text-gray-900 mb-4">Status</h3>
               <div className="space-y-4">
