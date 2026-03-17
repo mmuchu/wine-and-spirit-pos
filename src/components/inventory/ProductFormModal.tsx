@@ -4,16 +4,16 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Product } from "@/lib/types";
-import { formatCurrency } from "@/components/pos/utils";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   product?: Product | null;
+  organizationId: string | null; // NEW PROP
 }
 
-export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props) {
+export function ProductFormModal({ isOpen, onClose, onSuccess, product, organizationId }: Props) {
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
@@ -21,8 +21,9 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
   const [form, setForm] = useState({
     name: "",
     price: "",
+    cost_price: "", // Added cost price
     stock: "0",
-    min_stock: "10", // NEW
+    min_stock: "10",
     category_id: "",
     is_active: true
   });
@@ -34,14 +35,14 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
         setForm({
           name: product.name,
           price: String(product.price),
+          cost_price: String(product.cost_price || 0),
           stock: String(product.stock),
-          min_stock: String(product.min_stock || 10), // NEW
+          min_stock: String(product.min_stock || 10),
           category_id: product.category_id || "",
           is_active: product.is_active
         });
       } else {
-        // Reset for new product
-        setForm({ name: "", price: "", stock: "0", min_stock: "10", category_id: "", is_active: true });
+        setForm({ name: "", price: "", cost_price: "0", stock: "0", min_stock: "10", category_id: "", is_active: true });
       }
     }
   }, [isOpen, product]);
@@ -53,26 +54,31 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!organizationId) {
+        alert("Error: Organization ID is missing.");
+        return;
+    }
+    
     setLoading(true);
     try {
       const payload = {
         name: form.name,
         price: parseFloat(form.price),
+        cost_price: parseFloat(form.cost_price), // Save cost
         stock: parseInt(form.stock),
-        min_stock: parseInt(form.min_stock), // NEW
+        min_stock: parseInt(form.min_stock),
         category_id: form.category_id || null,
-        is_active: form.is_active
+        is_active: form.is_active,
+        organization_id: organizationId // USE DYNAMIC ID
       };
 
       if (product) {
-        // Update
         const { error } = await supabase
           .from("products")
           .update(payload)
           .eq("id", product.id);
         if (error) throw error;
       } else {
-        // Create
         const { error } = await supabase
           .from("products")
           .insert(payload);
@@ -109,7 +115,7 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Price (Ksh)</label>
+              <label className="block text-sm font-medium mb-1">Selling Price</label>
               <input
                 type="number"
                 step="0.01"
@@ -120,6 +126,19 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
               />
             </div>
             <div>
+              <label className="block text-sm font-medium mb-1">Cost Price</label>
+              <input
+                type="number"
+                step="0.01"
+                value={form.cost_price}
+                onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div>
               <label className="block text-sm font-medium mb-1">Current Stock</label>
               <input
                 type="number"
@@ -129,19 +148,15 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
                 className="w-full p-2 border rounded"
               />
             </div>
-          </div>
-
-          {/* NEW: Min Stock Field */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Low Stock Alarm Level</label>
-            <input
-              type="number"
-              required
-              value={form.min_stock}
-              onChange={(e) => setForm({ ...form, min_stock: e.target.value })}
+            <div>
+              <label className="block text-sm font-medium mb-1">Min Stock Level</label>
+              <input
+                type="number"
+                value={form.min_stock}
+                onChange={(e) => setForm({ ...form, min_stock: e.target.value })}
                 className="w-full p-2 border rounded"
-                placeholder="Warn if stock falls below..."
-            />
+              />
+            </div>
           </div>
 
           <div>
@@ -165,7 +180,7 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
               onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
               className="h-4 w-4"
             />
-            <label className="text-sm">Active (Visible in POS)</label>
+            <label className="text-sm">Active</label>
           </div>
 
           <div className="flex gap-3 pt-4">
@@ -173,7 +188,7 @@ export function ProductFormModal({ isOpen, onClose, onSuccess, product }: Props)
               Cancel
             </button>
             <button type="submit" disabled={loading} className="flex-1 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:bg-gray-300">
-              {loading ? "Saving..." : "Save Product"}
+              {loading ? "Saving..." : "Save"}
             </button>
           </div>
         </form>

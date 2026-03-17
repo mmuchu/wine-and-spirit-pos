@@ -16,10 +16,9 @@ export const offlineService = {
 
       if (data) {
         await db.products.clear();
-        // Ensure min_stock exists
         const timestamped = data.map((p: any) => ({ 
           ...p, 
-          min_stock: p.min_stock || 10, // Default if missing
+          min_stock: p.min_stock || 10, 
           updatedAt: Date.now() 
         }));
         await db.products.bulkAdd(timestamped);
@@ -33,10 +32,25 @@ export const offlineService = {
   async processSale(salePayload: any) {
     const isOnline = navigator.onLine;
 
+    // NEW: Calculate Cost of Goods Sold (COGS)
+    let totalCogs = 0;
+    if (salePayload.items && Array.isArray(salePayload.items)) {
+        totalCogs = salePayload.items.reduce((sum: number, item: any) => {
+            const cost = item.cost_price || 0; 
+            return sum + (cost * item.quantity);
+        }, 0);
+    }
+    
+    // Add COGS to the sale record
+    const finalPayload = {
+        ...salePayload,
+        cogs_amount: totalCogs
+    };
+
     if (isOnline) {
       try {
         const supabase = createClient();
-        const { data, error } = await supabase.from('sales').insert(salePayload).select('id').single();
+        const { data, error } = await supabase.from('sales').insert(finalPayload).select('id').single();
         if (error) throw error;
         
         await this.updateLocalInventory(salePayload.items);
@@ -47,7 +61,7 @@ export const offlineService = {
     }
 
     const queueItem: QueuedSale = {
-      payload: salePayload,
+      payload: finalPayload,
       status: 'pending',
       createdAt: new Date()
     };
@@ -92,7 +106,6 @@ export const offlineService = {
 
   async getLocalProducts(): Promise<Product[]> {
     const data = await db.products.toArray();
-    // Map to ensure default values for safety
     return data.map(p => ({
         ...p,
         min_stock: p.min_stock || 10

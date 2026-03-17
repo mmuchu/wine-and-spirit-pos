@@ -1,120 +1,159 @@
  // src/components/pos/ReceiptModal.tsx
 "use client";
 
-import { CartItem } from "@/lib/types";
+import { useState, useEffect, useRef } from "react";
 import { formatCurrency } from "./utils";
+import { settingsService } from "@/lib/services/settingsService";
 
-interface ReceiptModalProps {
+interface Props {
   isOpen: boolean;
   onClose: () => void;
-  saleData: {
-    id: string;
-    items: CartItem[];
-    total: number;
-    subtotal: number;
-    tax: number;
-    paymentMethod: string;
-    date: string;
-  } | null;
+  saleData: any;
 }
 
-export function ReceiptModal({ isOpen, onClose, saleData }: ReceiptModalProps) {
-  if (!isOpen || !saleData) return null;
+export function ReceiptModal({ isOpen, onClose, saleData }: Props) {
+  const [settings, setSettings] = useState<any>(null);
+  const printRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = () => {
-    window.print();
+  useEffect(() => {
+    if (isOpen) {
+      loadSettings();
+    }
+  }, [isOpen]);
+
+  const loadSettings = async () => {
+    const s = await settingsService.getSettings();
+    setSettings(s);
   };
 
-  const receiptNumber = saleData.id.slice(0, 8).toUpperCase();
-  const transactionDate = new Date(saleData.date);
+  const handlePrint = () => {
+    if (printRef.current) {
+      const printContents = printRef.current.innerHTML;
+      const originalContents = document.body.innerHTML;
+      
+      // Optional: Create a separate print window
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write('<html><head><title>Receipt</title>');
+        // Add minimal print styles
+        printWindow.document.write('<style>body { font-family: monospace; padding: 20px; font-size: 12px; } h2 { margin-bottom: 5px; } hr { border: 0; border-top: 1px dashed #000; margin: 10px 0; } .right { text-align: right; }</style>');
+        printWindow.document.write('</head><body>');
+        printWindow.document.write(printContents);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+      }
+    }
+  };
+
+  if (!isOpen || !saleData || !settings) return null;
+
+  const total = saleData.total || 0;
+  const subtotal = saleData.subtotal || 0;
+  const tax = saleData.tax || 0;
+  const items = saleData.items || [];
+  const date = new Date(saleData.date);
+  const customer = saleData.customerName; // From credit sale logic
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:bg-white print:p-0">
-      {/* Container: Controlled Height */}
-      <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl flex flex-col max-h-[90vh] overflow-hidden print:shadow-none print:max-h-full">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 print:hidden">
+      <div className="bg-white rounded-lg w-full max-w-sm shadow-2xl max-h-[90vh] flex flex-col">
         
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          <div className="p-6 text-sm font-mono text-gray-900">
+        {/* Header Actions */}
+        <div className="p-3 border-b flex justify-between items-center shrink-0">
+          <h2 className="font-bold">Receipt Preview</h2>
+          <div className="flex gap-2">
+            <button onClick={handlePrint} className="px-3 py-1 bg-black text-white rounded text-xs font-bold">
+              Print
+            </button>
+            <button onClick={onClose} className="px-3 py-1 border rounded text-xs font-bold hover:bg-gray-100">
+              Close
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable Receipt Area */}
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-100 flex justify-center">
+          
+          {/* Receipt Container */}
+          <div ref={printRef} className="bg-white p-6 shadow-md w-full font-mono text-sm border border-dashed">
             
-            {/* Header */}
-            <div className="text-center border-b border-dashed pb-4 mb-4">
-              <h2 className="text-lg font-bold">The Kenyan Spirit Lounge</h2>
-              <p className="text-xs text-gray-500">P.O. Box 12345, Nairobi</p>
+            {/* Shop Header */}
+            <div className="text-center mb-4">
+              <h2 className="text-lg font-bold">{settings.shop_name}</h2>
+              <p className="text-xs">{settings.address}</p>
+              {settings.phone && <p className="text-xs">Tel: {settings.phone}</p>}
+              {settings.vat_number && <p className="text-xs mt-1 font-bold">VAT: {settings.vat_number}</p>}
             </div>
 
-            {/* Transaction Details */}
-            <div className="mb-4 space-y-1">
-              <div className="flex justify-between">
-                <span>Date:</span>
-                <span>{transactionDate.toLocaleDateString()}</span>
+            <hr className="border-dashed mb-3" />
+
+            {/* Meta Data */}
+            <div className="flex justify-between text-xs mb-2">
+              <span>Date:</span>
+              <span>{date.toLocaleDateString()} {date.toLocaleTimeString()}</span>
+            </div>
+            <div className="flex justify-between text-xs mb-2">
+              <span>Receipt:</span>
+              <span className="font-bold">{(saleData.id || 'DRAFT').toString().slice(0, 8).toUpperCase()}</span>
+            </div>
+             {customer && (
+              <div className="flex justify-between text-xs mb-2">
+                <span>Customer:</span>
+                <span className="font-bold">{customer}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Time:</span>
-                <span>{transactionDate.toLocaleTimeString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Receipt #:</span>
-                <span>{receiptNumber}</span>
-              </div>
+            )}
+             <div className="flex justify-between text-xs mb-3">
+              <span>Served by:</span>
+              <span>Cashier</span>
             </div>
 
-            <div className="border-t border-dashed my-4"></div>
+            <hr className="border-dashed mb-3" />
 
-            {/* Items - Scrollable if many items */}
-            <div className="space-y-2 mb-4">
-              {saleData.items.map((item) => (
-                <div key={item.id} className="flex justify-between text-xs">
-                  <div className="flex-1">
-                    <span className="font-semibold">{item.name}</span>
-                    <span className="text-gray-400 ml-1">x{item.quantity}</span>
+            {/* Items */}
+            <div className="space-y-1 mb-3">
+              {items.map((item: any) => (
+                <div key={item.id} className="text-xs">
+                  <div className="flex justify-between">
+                    <span className="truncate w-32">{item.name}</span>
+                    <span className="w-12 text-center">x{item.quantity}</span>
+                    <span className="w-20 text-right">{formatCurrency(item.price * item.quantity)}</span>
                   </div>
-                  <span className="font-medium ml-2">
-                    {formatCurrency(item.price * item.quantity)}
-                  </span>
                 </div>
               ))}
             </div>
 
-            <div className="border-t border-dashed pt-4 space-y-2">
+            <hr className="border-dashed my-3" />
+
+            {/* Totals */}
+            <div className="space-y-1 text-xs">
               <div className="flex justify-between">
                 <span>Subtotal:</span>
-                <span>{formatCurrency(saleData.subtotal)}</span>
+                <span>{formatCurrency(subtotal)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Tax (16%):</span>
-                <span>{formatCurrency(saleData.tax)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-base border-t border-dashed pt-2 mt-2">
+              {tax > 0 && (
+                <div className="flex justify-between">
+                  <span>VAT (16%):</span>
+                  <span>{formatCurrency(tax)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-base border-t pt-2 mt-2">
                 <span>TOTAL:</span>
-                <span>{formatCurrency(saleData.total)}</span>
-              </div>
-              <div className="flex justify-between text-xs pt-2">
-                <span>Payment Method:</span>
-                <span className="font-medium">{saleData.paymentMethod}</span>
+                <span>{formatCurrency(total)}</span>
               </div>
             </div>
 
-            <div className="text-center text-xs text-gray-500 mt-6 border-t border-dashed pt-4">
-              <p>Thank you for your business!</p>
+            <hr className="border-dashed my-4" />
+
+            {/* Footer */}
+            <div className="text-center text-xs space-y-1">
+              <p>{settings.receipt_footer}</p>
+              <p className="text-[10px] text-gray-500">Powered by NextPOS</p>
             </div>
+
           </div>
-        </div>
-
-        {/* Fixed Footer Buttons - Always visible */}
-        <div className="p-4 border-t bg-gray-50 flex gap-3 print:hidden shrink-0">
-          <button
-            onClick={handlePrint}
-            className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-semibold hover:bg-blue-700 transition shadow-sm"
-          >
-            Print Receipt
-          </button>
-          <button
-            onClick={onClose}
-            className="flex-1 bg-gray-200 text-gray-700 py-2.5 rounded-lg font-semibold hover:bg-gray-300 transition"
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>

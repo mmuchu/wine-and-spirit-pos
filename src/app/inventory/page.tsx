@@ -7,9 +7,12 @@ import { Product } from "@/lib/types";
 import { formatCurrency, getCategoryName } from "@/components/pos/utils";
 import { ProductFormModal } from "@/components/inventory/ProductFormModal";
 import { stockService } from "@/lib/services/stockService";
+import { useOrganization } from "@/lib/context/OrganizationContext";
 
 export default function InventoryPage() {
   const supabase = createClient();
+  const { organizationId } = useOrganization();
+  
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,15 +23,18 @@ export default function InventoryPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    if (organizationId) {
+      fetchProducts();
+    }
+  }, [organizationId]);
 
   const fetchProducts = async () => {
+    if (!organizationId) return;
     try {
-      // Explicitly select min_stock to ensure it returns
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, price, stock, min_stock, is_active, sku, category_id, categories(name)")
+        .select("id, name, price, cost_price, stock, min_stock, is_active, sku, category_id, categories(name)")
+        .eq("organization_id", organizationId)
         .order("name", { ascending: true });
       
       if (error) throw error;
@@ -111,8 +117,10 @@ export default function InventoryPage() {
               <tr>
                 <th className="text-left p-3 font-semibold">Product</th>
                 <th className="text-left p-3 font-semibold">Category</th>
-                <th className="text-right p-3 font-semibold">Price</th>
-                <th className="text-center p-3 font-semibold">Current Stock</th>
+                <th className="text-right p-3 font-semibold">Cost (Buy)</th>
+                <th className="text-right p-3 font-semibold">Price (Sell)</th>
+                <th className="text-center p-3 font-semibold">Profit/Unit</th>
+                <th className="text-center p-3 font-semibold">Stock</th>
                 <th className="text-center p-3 font-semibold">Min Level</th>
                 <th className="text-center p-3 font-semibold">Status</th>
                 <th className="text-right p-3 font-semibold">Actions</th>
@@ -121,17 +129,18 @@ export default function InventoryPage() {
             <tbody className="divide-y">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
                     No products found.
                   </td>
                 </tr>
               ) : (
                 filteredProducts.map((product) => {
-                  // Safe access to stock and min_stock
-                  const currentStock = product.stock ?? 0;
-                  const minStock = product.min_stock ?? 10;
+                  const minStock = product.min_stock || 10;
+                  const currentStock = product.stock;
+                  const cost = product.cost_price || 0;
+                  const price = product.price || 0;
+                  const profit = price - cost;
                   
-                  // Determine Status
                   let statusColor = "bg-green-100 text-green-800";
                   let statusText = "In Stock";
                   
@@ -152,8 +161,16 @@ export default function InventoryPage() {
                       <td className="p-3 text-muted-foreground">
                         {getCategoryName(product)}
                       </td>
-                      <td className="p-3 text-right font-medium">
-                        {formatCurrency(product.price)}
+                      <td className="p-3 text-right text-red-500 font-medium">
+                        {formatCurrency(cost)}
+                      </td>
+                      <td className="p-3 text-right font-bold">
+                        {formatCurrency(price)}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${profit > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                          {formatCurrency(profit)}
+                        </span>
                       </td>
                       <td className="p-3 text-center">
                         <span className={`font-bold ${currentStock < minStock ? 'text-red-600' : ''}`}>
@@ -191,15 +208,14 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Product Form Modal */}
       <ProductFormModal
         isOpen={isProductModalOpen}
         onClose={handleCloseProductModal}
         onSuccess={handleSuccess}
         product={editingProduct}
+        organizationId={organizationId}
       />
 
-      {/* Stock In Modal */}
       <StockInModal
         isOpen={isStockInModalOpen}
         onClose={() => setIsStockInModalOpen(false)}
@@ -210,7 +226,6 @@ export default function InventoryPage() {
   );
 }
 
-// Stock In Modal Component
 function StockInModal({ isOpen, onClose, product, onSubmit }: {
   isOpen: boolean;
   onClose: () => void;

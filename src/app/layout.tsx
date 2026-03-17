@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { OrganizationProvider } from "@/lib/context/OrganizationContext"; // Import Provider
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,11 +24,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className={`${inter.className} h-full bg-gray-50`}>
-        <Sidebar />
-        {/* lg:pl-72 adds padding on large screens so content isn't hidden behind the fixed sidebar */}
-        <main className="lg:pl-72 min-h-screen">
-          {children}
-        </main>
+        <OrganizationProvider>
+          <Sidebar />
+          <main className="lg:pl-72 min-h-screen">
+            {children}
+          </main>
+        </OrganizationProvider>
       </body>
     </html>
   );

@@ -5,94 +5,121 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/components/pos/utils";
 import { expenseService } from "@/lib/services/expenseService";
+import { exportToCSV } from "@/lib/utils/export";
+
+// Helper to get date ranges
+const getRangeStart = (range: string) => {
+  const now = new Date();
+  let startDate: Date;
+
+  switch (range) {
+    case 'today':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    default:
+      startDate = new Date(2020, 0, 1);
+  }
+  return startDate.toISOString();
+};
 
 export default function ReportsPage() {
   const supabase = createClient();
   
-  const [stats, setStats] = useState({
-    totalSales: 0,
-    totalTax: 0,
-    cashSales: 0,
-    mpesaSales: 0,
-    creditSales: 0,
-    totalExpenses: 0,
-    netProfit: 0,
-    transactionCount: 0,
-  });
-  
+  // State for the detailed transaction list (filtered by tab)
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'all'>('today');
 
+  // State for the Comparative Summary Table (All periods at once)
+  const [summaryData, setSummaryData] = useState({
+    today: { revenue: 0, cogs: 0, profit: 0 },
+    week: { revenue: 0, cogs: 0, profit: 0 },
+    month: { revenue: 0, cogs: 0, profit: 0 },
+    all: { revenue: 0, cogs: 0, profit: 0 },
+  });
+
   useEffect(() => {
-    fetchReportData();
+    fetchAllSummaryData();
+  }, []);
+
+  // Fetch detailed list when tab changes
+  useEffect(() => {
+    fetchDetailedList(dateRange);
   }, [dateRange]);
 
-  const getDateFilter = () => {
-    const now = new Date();
-    let startDate: Date;
+  // 1. Fetch High-Level Stats for ALL periods in parallel
+  const fetchAllSummaryData = async () => {
+    try {
+      const ranges = ['today', 'week', 'month', 'all'];
+      
+      const promises = ranges.map(async (range) => {
+        const startDate = getRangeStart(range);
+        
+        // Fetch Sales
+        const { data: salesData } = await supabase
+          .from("sales")
+          .select("total_amount, cogs_amount")
+          .gte("created_at", startDate);
+          
+        const revenue = salesData?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
+        const cogs = salesData?.reduce((sum: number, s: any) => sum + (s.cogs_amount || 0), 0) || 0;
+        
+        return { range, revenue, cogs, profit: revenue - cogs };
+      });
 
-    switch (dateRange) {
-      case 'today':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      default:
-        startDate = new Date(2020, 0, 1);
+      const results = await Promise.all(promises);
+      
+      // Map results to state
+      const newSummary: any = {};
+      results.forEach(r => newSummary[r.range] = { revenue: r.revenue, cogs: r.cogs, profit: r.profit });
+      
+      setSummaryData(newSummary);
+      
+    } catch (err) {
+      console.error("Error fetching summary", err);
     }
-    return startDate.toISOString();
   };
 
-  const fetchReportData = async () => {
+  // 2. Fetch Detailed Transaction List for the selected tab
+  const fetchDetailedList = async (range: string) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const startDate = getDateFilter();
-
-      const { data: salesData, error } = await supabase
+      const startDate = getRangeStart(range);
+      const { data, error } = await supabase
         .from("sales")
-        .select("id, created_at, total_amount, tax_amount, payment_method, status")
+        .select("id, created_at, total_amount, tax_amount, payment_method, status, cogs_amount")
         .gte("created_at", startDate)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
-      // FIX: Added ': any' to parameter 's'
-      const totalSales = salesData?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
-      const totalTax = salesData?.reduce((sum: number, s: any) => sum + (s.tax_amount || 0), 0) || 0;
-      const cashSales = salesData?.filter((s: any) => s.payment_method === 'Cash').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
-      const mpesaSales = salesData?.filter((s: any) => s.payment_method === 'M-Pesa').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
-      const creditSales = salesData?.filter((s: any) => s.payment_method === 'Credit').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
-
-      const { data: expensesData } = await supabase
-        .from('expenses')
-        .select('amount')
-        .gte('date', startDate);
-      
-      const totalExpenses = expensesData?.reduce((sum: number, e: any) => sum + Number(e.amount), 0) || 0;
-
-      setStats({
-        totalSales,
-        totalTax,
-        cashSales,
-        mpesaSales,
-        creditSales,
-        totalExpenses,
-        netProfit: totalSales - totalExpenses,
-        transactionCount: salesData?.length || 0,
-      });
-
-      setSales(salesData || []);
-
-    } catch (error) {
-      console.error("Error fetching reports:", error);
+      setSales(data || []);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExport = () => {
+    if (sales.length === 0) {
+      alert("No data to export.");
+      return;
+    }
+    const dataToExport = sales.map(sale => ({
+      Date: new Date(sale.created_at).toLocaleString(),
+      Receipt_ID: sale.id.slice(0, 8).toUpperCase(),
+      Payment_Method: sale.payment_method,
+      Status: sale.status,
+      Total_Amount: sale.total_amount?.toFixed(2) || '0.00',
+      COGS_Amount: sale.cogs_amount?.toFixed(2) || '0.00',
+    }));
+    exportToCSV(dataToExport, `Sales_Report_${dateRange}`);
   };
 
   return (
@@ -100,144 +127,121 @@ export default function ReportsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Sales Reports</h1>
-          <p className="text-sm text-gray-500 mt-1">Comprehensive overview of business performance.</p>
+          <p className="text-sm text-gray-500 mt-1">Comparative profit analysis.</p>
         </div>
-
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
-          {(['today', 'week', 'month', 'all'] as const).map((range) => (
-            <button
-              key={range}
-              onClick={() => setDateRange(range)}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${
-                dateRange === range 
-                  ? "bg-white text-gray-900 shadow-sm" 
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {range.charAt(0).toUpperCase() + range.slice(1)}
-            </button>
-          ))}
-        </div>
+        <button 
+          onClick={handleExport}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition shadow-sm"
+        >
+          Export to CSV
+        </button>
       </div>
 
-      {loading ? (
-        <div className="p-8 text-center text-gray-400">Calculating report data...</div>
-      ) : (
-        <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-              <div className="flex justify-between items-start">
-                <p className="text-xs font-semibold text-gray-400 uppercase">Total Revenue</p>
-                <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(stats.totalSales)}</p>
-              <p className="text-xs text-gray-400 mt-1">{stats.transactionCount} transactions</p>
-            </div>
+      {/* --- NEW: Comparative Summary Table --- */}
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="text-left p-4 font-semibold text-gray-600">Period</th>
+              <th className="text-right p-4 font-semibold text-gray-600">Revenue</th>
+              <th className="text-right p-4 font-semibold text-gray-600">Cost (COGS)</th>
+              <th className="text-right p-4 font-semibold text-gray-600">Gross Profit</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {/* Today Row */}
+            <tr className="hover:bg-gray-50">
+              <td className="p-4 font-bold">Today</td>
+              <td className="p-4 text-right">{formatCurrency(summaryData.today.revenue)}</td>
+              <td className="p-4 text-right text-gray-500">{formatCurrency(summaryData.today.cogs)}</td>
+              <td className="p-4 text-right font-bold text-green-600">{formatCurrency(summaryData.today.profit)}</td>
+            </tr>
+            {/* Week Row */}
+            <tr className="hover:bg-gray-50">
+              <td className="p-4 font-bold">This Week</td>
+              <td className="p-4 text-right">{formatCurrency(summaryData.week.revenue)}</td>
+              <td className="p-4 text-right text-gray-500">{formatCurrency(summaryData.week.cogs)}</td>
+              <td className="p-4 text-right font-bold text-green-600">{formatCurrency(summaryData.week.profit)}</td>
+            </tr>
+            {/* Month Row */}
+            <tr className="hover:bg-gray-50">
+              <td className="p-4 font-bold">This Month</td>
+              <td className="p-4 text-right">{formatCurrency(summaryData.month.revenue)}</td>
+              <td className="p-4 text-right text-gray-500">{formatCurrency(summaryData.month.cogs)}</td>
+              <td className="p-4 text-right font-bold text-green-600">{formatCurrency(summaryData.month.profit)}</td>
+            </tr>
+            {/* All Time Row */}
+            <tr className="bg-gray-50 hover:bg-gray-100">
+              <td className="p-4 font-bold">All Time</td>
+              <td className="p-4 text-right font-bold">{formatCurrency(summaryData.all.revenue)}</td>
+              <td className="p-4 text-right font-bold text-gray-600">{formatCurrency(summaryData.all.cogs)}</td>
+              <td className="p-4 text-right font-bold text-blue-600">{formatCurrency(summaryData.all.profit)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-              <div className="flex justify-between items-start">
-                <p className="text-xs font-semibold text-gray-400 uppercase">Cash Sales</p>
-                <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-              </div>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(stats.cashSales)}</p>
-            </div>
+      {/* Transaction List Section */}
+      <div className="flex gap-2 border-b pb-3">
+        {(['today', 'week', 'month', 'all'] as const).map((range) => (
+          <button
+            key={range}
+            onClick={() => setDateRange(range)}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${
+              dateRange === range 
+                ? "bg-black text-white shadow-sm" 
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {range.charAt(0).toUpperCase() + range.slice(1)}
+          </button>
+        ))}
+      </div>
 
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-              <div className="flex justify-between items-start">
-                <p className="text-xs font-semibold text-gray-400 uppercase">M-Pesa</p>
-                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{formatCurrency(stats.mpesaSales)}</p>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-              <div className="flex justify-between items-start">
-                <p className="text-xs font-semibold text-gray-400 uppercase">Expenses</p>
-                <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
-                </svg>
-              </div>
-              <p className="text-2xl font-bold text-red-500 mt-2">{formatCurrency(stats.totalExpenses)}</p>
-            </div>
-
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             <div className={`p-6 rounded-xl border shadow-sm ${stats.netProfit >= 0 ? 'bg-black text-white' : 'bg-red-50 border-red-200'}`}>
-                <p className={`text-sm font-medium ${stats.netProfit >= 0 ? 'text-gray-300' : 'text-red-500'}`}>Net Profit</p>
-                <p className="text-3xl font-bold mt-1">{formatCurrency(stats.netProfit)}</p>
-                <p className={`text-xs mt-2 ${stats.netProfit >= 0 ? 'text-gray-400' : 'text-red-400'}`}>Revenue minus expenses</p>
-             </div>
-
-             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <p className="text-sm font-medium text-gray-500">Tax Collected (VAT)</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.totalTax)}</p>
-                <p className="text-xs text-gray-400 mt-2">Ready for remittance</p>
-             </div>
-
-             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <p className="text-sm font-medium text-gray-500">Credit Given (Debts)</p>
-                <p className="text-2xl font-bold text-orange-500 mt-1">{formatCurrency(stats.creditSales)}</p>
-                <p className="text-xs text-gray-400 mt-2">Outstanding balances</p>
-             </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b bg-gray-50">
-              <h3 className="font-semibold text-gray-900">Transaction Details</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-4 font-semibold text-gray-500">Time</th>
-                    <th className="text-left p-4 font-semibold text-gray-500">Status</th>
-                    <th className="text-left p-4 font-semibold text-gray-500">Method</th>
-                    <th className="text-right p-4 font-semibold text-gray-500">Total</th>
+      {/* Detailed Table */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left p-4 font-semibold text-gray-500">Time</th>
+                <th className="text-left p-4 font-semibold text-gray-500">Status</th>
+                <th className="text-left p-4 font-semibold text-gray-500">Method</th>
+                <th className="text-right p-4 font-semibold text-gray-500">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {loading ? (
+                <tr><td colSpan={4} className="p-8 text-center text-gray-400">Loading...</td></tr>
+              ) : sales.length === 0 ? (
+                <tr><td colSpan={4} className="p-8 text-center text-gray-400">No transactions found.</td></tr>
+              ) : (
+                sales.map((sale) => (
+                  <tr key={sale.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-4 whitespace-nowrap text-gray-600">
+                      {new Date(sale.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                        sale.status === 'completed' ? 'bg-green-100 text-green-700' : 
+                        sale.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 
+                        sale.status === 'credit' ? 'bg-blue-100 text-blue-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {sale.status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-gray-600">{sale.payment_method}</td>
+                    <td className="p-4 text-right font-medium whitespace-nowrap">
+                      {formatCurrency(sale.total_amount || 0)}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {sales.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-8 text-center text-gray-400">No transactions for this period.</td>
-                    </tr>
-                  ) : (
-                    sales.map((sale) => (
-                      <tr key={sale.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="p-4 whitespace-nowrap text-gray-600">
-                          {new Date(sale.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="p-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                            sale.status === 'completed' ? 'bg-green-100 text-green-700' : 
-                            sale.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 
-                            sale.status === 'credit' ? 'bg-blue-100 text-blue-700' :
-                            'bg-red-100 text-red-700'
-                          }`}>
-                            {sale.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-gray-600">{sale.payment_method}</td>
-                        <td className="p-4 text-right font-medium whitespace-nowrap">
-                          {formatCurrency(sale.total_amount || 0)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

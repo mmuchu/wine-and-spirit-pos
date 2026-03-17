@@ -11,11 +11,14 @@ import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { CustomerModal } from "@/components/pos/CustomerModal";
 import { customerService } from "@/lib/services/customerService";
 import { offlineService } from "@/lib/services/offlineService";
+import { useOrganization } from "@/lib/context/OrganizationContext";
 
 const TAX_RATE = 0.16;
 
 export default function POSPage() {
   const supabase = createClient();
+  const { organizationId } = useOrganization();
+  
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
@@ -30,24 +33,29 @@ export default function POSPage() {
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<any>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  
-  // Offline State
+  const [pendingSaleData, setPendingSaleData] = useState<any>(null);
+
   const [isOnline, setIsOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
 
   const justAddedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    initData();
-    
+    if (organizationId) {
+      loadLocalProducts();
+      syncData();
+    }
+
     const handleOnline = () => {
       setIsOnline(true);
-      showToast("Back Online! Syncing...", "success");
+      showToast("Back Online! Syncing data...", "success");
+      offlineService.syncPendingSales(); 
       syncData(); 
     };
+    
     const handleOffline = () => {
       setIsOnline(false);
-      showToast("You are Offline.", "error");
+      showToast("You are Offline. Sales will be saved locally.", "error");
     };
 
     window.addEventListener('online', handleOnline);
@@ -57,59 +65,40 @@ export default function POSPage() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [organizationId]);
 
-  // Initialize Data: Load Local -> Then Sync
-  const initData = async () => {
+  const loadLocalProducts = async () => {
     try {
-      // 1. Try loading from local DB first (fast)
       const localProducts = await offlineService.getLocalProducts();
       if (localProducts.length > 0) {
         setProducts(localProducts);
-        setLoading(false); // Show local data immediately
+        setLoading(false); 
       }
-      
-      // 2. Sync with server
-      await syncData();
-      
-    } catch (err) {
-      console.error("Init Error:", err);
-      showToast("Failed to load products", "error");
-      setLoading(false);
+    } catch (e) {
+      console.error("Failed to load local products", e);
     }
   };
 
-  // Sync Data: Server -> Local DB -> State
   const syncData = async () => {
     try {
-      await offlineService.syncProducts(); // This throws if fails
+      await offlineService.syncProducts();
       const freshProducts = await offlineService.getLocalProducts();
       setProducts(freshProducts);
+      setLoading(false);
       
       const count = await offlineService.getPendingCount();
       setPendingCount(count);
-      
-      setLoading(false);
-    } catch (err) {
-      console.error("Sync Error:", err);
-      // If sync fails, we rely on whatever is in local DB.
-      // If local DB is empty, we show error.
-      const localProducts = await offlineService.getLocalProducts();
-      if (localProducts.length === 0) {
-         showToast("Could not load products. Check connection/permissions.", "error");
-      }
-      setLoading(false);
+    } catch (e) {
+      console.error("Sync failed", e);
     }
   };
 
-  // Calculate totals
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const tax = isTaxEnabled ? subtotal * TAX_RATE : 0;
   const total = subtotal + tax;
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const activeTaxRate = isTaxEnabled ? 16 : 0;
 
-  // Cart Actions
   const addToCart = useCallback((product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
@@ -146,13 +135,12 @@ export default function POSPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Payment Success
   const handlePaymentSuccess = async (method: string, transactionRef?: string, phone?: string) => {
     setIsPaymentOpen(false);
-    if (!cart.length) return;
+    
+    if (!cart.length || !organizationId) return;
     setIsProcessing(true);
     try {
-      const organizationId = cart[0]?.organization_id;
       const { data: { user } } = await supabase.auth.getUser();
       const saleStatus = method === "M-Pesa" ? "pending" : "completed";
 
@@ -163,16 +151,27 @@ export default function POSPage() {
         tax_amount: tax,
         subtotal_amount: subtotal,
         subtotal: subtotal,
-        items: cart,
+        items: cart.map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          cost_price: item.cost_price || 0, 
+          quantity: item.quantity
+        })),
         payment_method: method,
         status: saleStatus,
         created_at: new Date().toISOString()
       };
 
-      // Use Offline Service
+      if (method === "Credit") {
+        setPendingSaleData(saleRecord);
+        setIsCustomerModalOpen(true);
+        setIsProcessing(false);
+        return;
+      }
+
       const result = await offlineService.processSale(saleRecord);
       
-      // Update UI
       const freshProducts = await offlineService.getLocalProducts();
       setProducts(freshProducts);
       
@@ -194,16 +193,57 @@ export default function POSPage() {
       setIsReceiptOpen(true);
       
       if (result.offline) {
-        showToast("Saved Locally (Offline).", "success");
+        showToast("Saved Locally (Offline). Will sync later.", "success");
       } else {
         showToast("Sale Completed!", "success");
       }
 
-    } catch (error) {
-      const err = error as any;
-      showToast(err?.message || "Failed to process sale", "error");
+    } catch (error: any) {
+      showToast(error?.message || "Failed to process sale", "error");
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleCustomerSelect = async (customer: any) => {
+    setIsCustomerModalOpen(false);
+    if (!pendingSaleData) return;
+
+    setIsProcessing(true);
+    try {
+      const saleWithCustomer = {
+        ...pendingSaleData,
+        customer_id: customer.id,
+        status: 'credit'
+      };
+      
+      const result = await offlineService.processSale(saleWithCustomer);
+      await customerService.recordDebt(customer.id, result.id, pendingSaleData.total_amount);
+      
+      const freshProducts = await offlineService.getLocalProducts();
+      setProducts(freshProducts);
+
+      const receiptData = {
+        id: result.id,
+        items: cart,
+        total: Number(total),
+        subtotal: Number(subtotal),
+        tax: Number(tax),
+        paymentMethod: "Credit",
+        customerName: customer.name,
+        date: new Date().toISOString(),
+      };
+
+      clearCart();
+      setLastSaleData(receiptData);
+      setIsReceiptOpen(true);
+      showToast("Credit Sale Recorded", "success");
+
+    } catch (err: any) {
+      showToast("Failed to record credit sale", "error");
+    } finally {
+      setIsProcessing(false);
+      setPendingSaleData(null);
     }
   };
 
@@ -215,7 +255,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* OFFLINE BANNER */}
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-yellow-500 text-black text-center py-2 text-sm font-bold print:hidden">
           OFFLINE MODE: Data will sync when connection is restored ({pendingCount} pending)
@@ -268,7 +307,14 @@ export default function POSPage() {
               onUpdateQty={updateQuantity}
               onRemove={removeFromCart}
               onClear={clearCart}
-              onCheckout={() => cart.length > 0 && setIsPaymentOpen(true)}
+              onCheckout={() => {
+                if (cart.length === 0) return;
+                if (isCreditEnabled) {
+                  handlePaymentSuccess("Credit");
+                } else {
+                  setIsPaymentOpen(true);
+                }
+              }}
               isCreditMode={isCreditEnabled}
             />
           </div>
@@ -282,12 +328,23 @@ export default function POSPage() {
         items={cart}
         onComplete={handlePaymentSuccess}
         onStkSent={() => showToast("STK Push sent!", "success")}
+        isCreditMode={isCreditEnabled}
       />
 
       <ReceiptModal
         isOpen={isReceiptOpen}
         onClose={() => setIsReceiptOpen(false)}
         saleData={lastSaleData}
+      />
+
+      <CustomerModal
+        isOpen={isCustomerModalOpen}
+        onClose={() => {
+          setIsCustomerModalOpen(false);
+          setPendingSaleData(null);
+        }}
+        onSelectCustomer={handleCustomerSelect}
+        organizationId={organizationId}
       />
     </div>
   );
