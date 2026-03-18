@@ -67,7 +67,6 @@ export default function DashboardPage() {
         .eq("organization_id", organizationId)
         .gte('created_at', currentShift.opened_at);
 
-      // FIX: Added type 'number' to sum
       const shiftSales = sales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
       const pending = sales?.filter((s: any) => s.status === 'pending').length || 0;
 
@@ -76,8 +75,8 @@ export default function DashboardPage() {
         .select('amount')
         .eq('shift_id', currentShift.id);
 
-      // FIX: Added type 'number' to sum
-      const shiftExpenses = expenses?.reduce((sum: number, e) => sum + (e.amount || 0), 0) || 0;
+      // FIX: Added type 'any' to 'e'
+      const shiftExpenses = expenses?.reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
 
       setShiftStats({
         sales: shiftSales,
@@ -101,8 +100,8 @@ export default function DashboardPage() {
         .from("sales")
         .select("total_amount");
      
-     // FIX: Added type 'number' to sum
-     const total = allSales?.reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
+     // FIX: Added type 'any' to 's'
+     const total = allSales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
      setStats(prev => ({
         ...prev,
         totalSales: total,
