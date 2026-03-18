@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/components/pos/utils";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
-import { auditService } from "@/lib/services/auditService"; // NEW
+import { auditService } from "@/lib/services/auditService"; 
 
 export default function ExpensesPage() {
   const supabase = createClient();
@@ -34,7 +34,9 @@ export default function ExpensesPage() {
   }, [organizationId]);
 
   const checkShift = async () => {
-    const shift = await shiftService.getCurrentShift();
+    if (!organizationId) return; // Safety check
+    // FIX: Pass organizationId to getCurrentShift
+    const shift = await shiftService.getCurrentShift(organizationId);
     if (shift) setCurrentShiftId(shift.id);
   };
 
