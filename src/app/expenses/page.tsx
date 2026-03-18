@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/components/pos/utils";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
+import { auditService } from "@/lib/services/auditService"; // NEW
 
 export default function ExpensesPage() {
   const supabase = createClient();
@@ -19,7 +20,7 @@ export default function ExpensesPage() {
     description: '',
     amount: '',
     category: 'Utilities',
-    cost_type: 'variable', // NEW
+    cost_type: 'variable',
     date: new Date().toISOString().split('T')[0]
   });
   const [submitting, setSubmitting] = useState(false);
@@ -62,15 +63,24 @@ export default function ExpensesPage() {
     
     setSubmitting(true);
     try {
-      await supabase.from('expenses').insert({
+      const expenseData = {
         organization_id: organizationId,
         description: formData.description,
         amount: parseFloat(formData.amount),
         category: formData.category,
-        cost_type: formData.cost_type, // NEW
+        cost_type: formData.cost_type,
         date: formData.date,
         shift_id: currentShiftId
-      });
+      };
+
+      await supabase.from('expenses').insert(expenseData);
+      
+      // AUDIT: Log the expense
+      await auditService.log(
+        'EXPENSE_ADDED',
+        `Recorded expense: ${formData.description} (${formatCurrency(parseFloat(formData.amount))})`,
+        { metadata: { amount: formData.amount, category: formData.category, type: formData.cost_type } }
+      );
       
       setIsModalOpen(false);
       setFormData({ description: '', amount: '', category: 'Utilities', cost_type: 'variable', date: new Date().toISOString().split('T')[0] });
@@ -82,7 +92,6 @@ export default function ExpensesPage() {
     }
   };
 
-  // Calculate totals
   const totalFixed = expenses.filter(e => e.cost_type === 'fixed').reduce((sum, e) => sum + Number(e.amount), 0);
   const totalVariable = expenses.filter(e => e.cost_type === 'variable').reduce((sum, e) => sum + Number(e.amount), 0);
 
@@ -167,7 +176,6 @@ export default function ExpensesPage() {
                   <option>Misc</option>
                 </select>
                 
-                {/* NEW: Cost Type Selector */}
                 <select value={formData.cost_type} onChange={(e) => setFormData({...formData, cost_type: e.target.value})} className="w-full p-2 border rounded font-medium">
                   <option value="variable">Variable Cost</option>
                   <option value="fixed">Fixed Cost</option>

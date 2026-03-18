@@ -11,6 +11,7 @@ import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { QuotationModal } from "@/components/pos/QuotationModal";
 import { offlineService } from "@/lib/services/offlineService";
 import { quotationService } from "@/lib/services/quotationService";
+import { auditService } from "@/lib/services/auditService"; // NEW
 import { useOrganization } from "@/lib/context/OrganizationContext";
 
 const TAX_RATE = 0.16;
@@ -78,6 +79,14 @@ export default function POSPage() {
       const record = { organization_id: organizationId, user_id: user?.id, total_amount: total, tax_amount: tax, subtotal_amount: subtotal, subtotal: subtotal, items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, cost_price: i.cost_price || 0, quantity: i.quantity })), payment_method: method, status: method === "M-Pesa" ? "pending" : "completed", created_at: new Date().toISOString() };
       
       const res = await offlineService.processSale(record);
+      
+      // AUDIT: Log the sale
+      await auditService.log(
+        'SALE_COMPLETED', 
+        `Sale processed via ${method}. Total: ${total.toFixed(2)}`,
+        { entity_type: 'Sale', entity_id: res.id, metadata: { total, method, itemCount } }
+      );
+
       setFilteredProducts(await offlineService.getLocalProducts());
       setPendingCount(await offlineService.getPendingCount());
       clearCart(); setLastSaleData({ id: res.id, items: cart, total, subtotal, tax, paymentMethod: method, date: new Date().toISOString() });
@@ -86,7 +95,18 @@ export default function POSPage() {
     } catch (e: any) { showToast(e.message || "Error", "error"); } finally { setIsProcessing(false); }
   };
 
-  const handleSaveQuote = async () => { if (!cart.length || !organizationId) return; const name = prompt("Customer Name:"); try { await quotationService.saveQuotation({ organization_id: organizationId, items: cart, total_amount: total, customer_name: name || null, status: 'pending' }); showToast("Quote Saved!", "success"); clearCart(); } catch (e: any) { showToast("Error: " + e.message, "error"); } };
+  const handleSaveQuote = async () => { if (!cart.length || !organizationId) return; const name = prompt("Customer Name:"); try { await quotationService.saveQuotation({ organization_id: organizationId, items: cart, total_amount: total, customer_name: name || null, status: 'pending' }); 
+      
+      // AUDIT: Log the quote
+      await auditService.log(
+        'QUOTE_SAVED',
+        `Quotation saved for ${name || 'Unknown'}. Total: ${total.toFixed(2)}`,
+        { metadata: { total, itemCount } }
+      );
+
+      showToast("Quote Saved!", "success"); clearCart(); 
+    } catch (e: any) { showToast("Error: " + e.message, "error"); } };
+  
   const handleLoadQuote = (q: any) => { if (cart.length > 0 && !confirm("Clear current cart?")) return; setCart(q.items.map((i: any) => ({ ...i, quantity: i.quantity || 1 }))); showToast("Quote Loaded", "success"); };
 
   return (

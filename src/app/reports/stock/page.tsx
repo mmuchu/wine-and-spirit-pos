@@ -6,8 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/components/pos/utils";
 import { exportToCSV } from "@/lib/utils/export";
 import { useOrganization } from "@/lib/context/OrganizationContext";
-import { useRouter, useSearchParams } from "next/navigation";
 import { shiftService } from "@/lib/services/shiftService";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function DailyStockReturnPage() {
   const supabase = createClient();
@@ -35,27 +35,40 @@ export default function DailyStockReturnPage() {
     if (action === 'close_shift' && cash) {
       setIsClosingShift(true);
       setClosingCash(parseFloat(cash));
-      checkActiveShift();
-    } else {
-      setLoading(true);
-      generateReport();
     }
-  }, [organizationId, searchParams]);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (organizationId) {
+        checkActiveShift();
+        generateReport();
+    }
+  }, [organizationId, date]);
 
   const checkActiveShift = async () => {
-    // Get current shift to close it later
-    const shift = await shiftService.getCurrentShift();
-    setCurrentShift(shift);
-    generateReport();
+    try {
+      const shift = await shiftService.getCurrentShift(organizationId);
+      setCurrentShift(shift);
+      
+      // If we are trying to close but no active shift found, force back to dashboard
+      if (isClosingShift && !shift) {
+          alert("No active shift found to close. Redirecting...");
+          router.push('/');
+      }
+    } catch (err) {
+      console.error("Error checking shift:", err);
+    }
   };
 
   const generateReport = async () => {
     if (!organizationId) return;
+    setLoading(true);
+    setError(null);
     
     try {
       const { data: products, error: pError } = await supabase
-        .from('products')
-        .select('id, name, stock') 
+        .from("products")
+        .select("id, name, stock") 
       
       if (pError) throw new Error(`Products Error: ${pError.message}`);
       if (!products) throw new Error("No products found.");
@@ -66,19 +79,19 @@ export default function DailyStockReturnPage() {
       end.setHours(23,59,59,999);
 
       const { data: sales, error: sError } = await supabase
-        .from('sales')
-        .select('items')
-        .eq('organization_id', organizationId)
+        .from("sales")
+        .select("items")
+        .eq("organization_id", organizationId)
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString());
 
       if (sError) throw new Error(`Sales Error: ${sError.message}`);
 
       const { data: purchases, error: purError } = await supabase
-        .from('stock_movements')
-        .select('product_id, quantity')
-        .eq('organization_id', organizationId)
-        .eq('type', 'purchase')
+        .from("stock_movements")
+        .select("product_id, quantity")
+        .eq("organization_id", organizationId)
+        .eq("type", "purchase")
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString());
 
@@ -106,7 +119,7 @@ export default function DailyStockReturnPage() {
           opening: openingStock,
           purchased: purchasedQty,
           sold: soldQty,
-          expected: expectedStock,
+          expected: expectedStock, // This is System Stock
           systemStock: closingStock
         };
       });
@@ -135,25 +148,35 @@ export default function DailyStockReturnPage() {
     const actual = actualInputs[productId];
     const item = reportData.find(r => r.id === productId);
     if (!item || actual === undefined) return 0;
-    return actual - item.expected;
+    return actual - item.expected; 
   };
 
   // --- MAIN ACTION ---
   const handleSaveAndClose = async () => {
-    if (!organizationId) return;
+    // 1. Validation
+    if (!organizationId) {
+        alert("Error: Organization ID is missing.");
+        return;
+    }
     
+    if (isClosingShift && !currentShift) {
+        alert("Error: No active shift found to close.");
+        return;
+    }
+
     setSaving(true);
     try {
-      // 1. Identify adjustments
+      // 2. Identify adjustments
       const adjustments = reportData.filter(r => {
         const actual = actualInputs[r.id];
         return actual !== r.expected;
       });
 
-      // 2. Update Product Stock in DB (Closing Stock -> Opening Stock for next shift)
+      // 3. Update Product Stock in DB (Closing Stock -> Opening Stock for next shift)
       for (const item of adjustments) {
         const actual = actualInputs[item.id];
-        
+        const variance = actual - item.expected;
+
         // Update products table
         const { error: updateError } = await supabase
           .from('products')
@@ -162,8 +185,7 @@ export default function DailyStockReturnPage() {
         
         if (updateError) throw updateError;
 
-        // Log movement
-        const variance = actual - item.expected;
+        // Log movement if variance exists
         if (variance !== 0) {
           await supabase.from('stock_movements').insert({
             product_id: item.id,
@@ -175,7 +197,7 @@ export default function DailyStockReturnPage() {
         }
       }
 
-      // 3. If Closing Shift, record the shift closure
+      // 4. If Closing Shift, record the shift closure
       if (isClosingShift && currentShift) {
         const notes = searchParams.get('notes') || "";
         await shiftService.closeShift(
@@ -193,7 +215,8 @@ export default function DailyStockReturnPage() {
       }
 
     } catch (err: any) {
-      alert("Error: " + err.message);
+      console.error(err);
+      alert("Failed to save: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -212,7 +235,7 @@ export default function DailyStockReturnPage() {
     exportToCSV(data, `Stock_Return_${date}`);
   };
 
-  if (loading) return <div className="p-8 text-center">Loading...</div>;
+  if (loading) return <div className="p-8 text-center">Loading Stock Data...</div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -232,8 +255,8 @@ export default function DailyStockReturnPage() {
             type="date" 
             value={date} 
             onChange={(e) => setDate(e.target.value)}
-            className="border p-2 rounded"
-            disabled={isClosingShift} // Disable date change during shift close
+            className="border p-2 border-gray-200 rounded text-sm"
+            disabled={isClosingShift} 
           />
           <button onClick={handleExport} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-bold">Export</button>
         </div>
@@ -241,52 +264,58 @@ export default function DailyStockReturnPage() {
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
-          <p className="font-bold">Error</p>
+          <p className="font-bold">Error Loading Report</p>
           <p className="text-sm">{error}</p>
         </div>
       )}
 
-      <div className="bg-white rounded-xl border shadow overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left p-3 font-semibold">Product</th>
-              <th className="text-center p-3 font-semibold">Opening</th>
-              <th className="text-center p-3 font-semibold text-blue-600">Purchases</th>
-              <th className="text-center p-3 font-semibold text-red-600">Sales</th>
-              <th className="text-center p-3 font-semibold">Expected</th>
-              <th className="text-center p-3 font-semibold bg-yellow-50">Actual (Count)</th>
-              <th className="text-center p-3 font-semibold text-orange-600">Variance</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {reportData.map((r, i) => {
-              const variance = getVariance(r.id);
-              const actualValue = actualInputs[r.id] ?? r.expected;
-              
-              return (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="p-3 font-medium">{r.name}</td>
-                  <td className="p-3 text-center">{r.opening}</td>
-                  <td className="p-3 text-center text-blue-600 font-bold">{r.purchased}</td>
-                  <td className="p-3 text-center text-red-600 font-bold">{r.sold}</td>
-                  <td className="p-3 text-center font-bold">{r.expected}</td>
-                  <td className="p-2 text-center bg-yellow-50">
-                    <input 
-                      type="number"
-                      value={actualValue}
-                      onChange={(e) => handleInputChange(r.id, e.target.value)}
-                      className="w-20 p-1 border rounded text-center text-sm font-bold"
-                    />
-                  </td>
-                  <td className={`p-3 text-center font-bold ${variance === 0 ? 'text-gray-400' : variance > 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>
-                    {variance > 0 ? `+${variance}` : variance}
-                  </td>
+      <div className="bg-white rounded-xl border shadow overflow-x-auto printable-area">
+        <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
+            <thead className="bg-gray-50 border-b">
+                <tr>
+                <th className="text-left p-3 font-semibold">Product</th>
+                <th className="text-center p-3 font-semibold">Opening</th>
+                <th className="text-center p-3 font-semibold text-blue-600">Purchases</th>
+                <th className="text-center p-3 font-semibold text-red-600">Sales</th>
+                <th className="text-center p-3 font-semibold">Expected</th>
+                <th className="text-center p-3 font-semibold bg-yellow-50">Actual (Count)</th>
+                <th className="text-center p-3 font-semibold text-orange-600">Variance</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y">
+                {reportData.length === 0 ? (
+                <tr><td colSpan={7} className="p-8 text-center text-gray-400">No products found.</td></tr>
+                ) : (
+                reportData.map((r, i) => {
+                    const variance = getVariance(r.id);
+                    const actualValue = actualInputs[r.id] ?? r.expected;
+                    
+                    return (
+                    <tr key={i} className="hover:bg-gray-50">
+                        <td className="p-3 font-medium">{r.name}</td>
+                        <td className="p-3 text-center">{r.opening}</td>
+                        <td className="p-3 text-center text-blue-600 font-bold">{r.purchased}</td>
+                        <td className="p-3 text-center text-red-600 font-bold">{r.sold}</td>
+                        <td className="p-3 text-center font-bold">{r.expected}</td>
+                        <td className="p-2 text-center bg-yellow-50">
+                        <input 
+                            type="number"
+                            value={actualValue}
+                            onChange={(e) => handleInputChange(r.id, e.target.value)}
+                            className="w-20 p-1 border rounded text-center text-sm font-bold focus:ring-2 focus:ring-black"
+                        />
+                        </td>
+                        <td className={`p-3 text-center font-bold ${variance === 0 ? 'text-gray-400' : variance > 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>
+                        {variance > 0 ? `+${variance}` : variance}
+                        </td>
+                    </tr>
+                    );
+                })
+                )}
+            </tbody>
+            </table>
+        </div>
       </div>
 
       {/* Combined Action Button */}

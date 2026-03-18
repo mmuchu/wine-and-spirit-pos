@@ -5,15 +5,16 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { formatCurrency } from "@/components/pos/utils";
-import { expenseService } from "@/lib/services/expenseService";
 import { LowStockAlert } from "@/components/inventory/LowStockAlert";
 import { SalesTrendChart } from "@/components/dashboard/SalesTrendChart";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
+import { usePathname } from "next/navigation";
 
 export default function DashboardPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
+  const pathname = usePathname();
   
   const [stats, setStats] = useState({
     totalSales: 0,
@@ -23,7 +24,6 @@ export default function DashboardPage() {
     pendingPayments: 0,
   });
 
-  // Shift Based Stats
   const [shiftStats, setShiftStats] = useState({
     sales: 0,
     expenses: 0,
@@ -35,45 +35,49 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (organizationId) {
-      fetchDashboardData();
-      fetchTopSellers();
-    }
+    if (organizationId) fetchDashboardData();
+  }, [organizationId, pathname]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      if (organizationId) fetchDashboardData();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [organizationId]);
 
   const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
+    if (!organizationId) return;
+    setLoading(true);
 
-      // 1. Get Current Active Shift
-      const currentShift = await shiftService.getCurrentShift();
+    try {
+      const currentShift = await shiftService.getCurrentShift(organizationId);
       
       if (!currentShift) {
-        // No active shift - reset shift stats to 0
         setShiftStats({ sales: 0, expenses: 0, profit: 0, shiftId: null });
-        
-        // Still fetch lifetime stats
+        setStats(prev => ({ ...prev, pendingPayments: 0 }));
         fetchLifetimeStats();
+        setLoading(false);
         return;
       }
 
-      // 2. Fetch Sales for THIS SHIFT
-      const { data: salesData } = await supabase
+      const { data: sales } = await supabase
         .from("sales")
         .select("total_amount, status, created_at")
         .eq("organization_id", organizationId)
         .gte('created_at', currentShift.opened_at);
 
-      const shiftSales = salesData?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
-      const pending = salesData?.filter((s: any) => s.status === 'pending').length || 0;
+      // FIX: Added type 'number' to sum
+      const shiftSales = sales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
+      const pending = sales?.filter((s: any) => s.status === 'pending').length || 0;
 
-      // 3. Fetch Expenses for THIS SHIFT (using shift_id)
-      const { data: expensesData } = await supabase
+      const { data: expenses } = await supabase
         .from('expenses')
         .select('amount')
         .eq('shift_id', currentShift.id);
 
-      const shiftExpenses = expensesData?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
+      // FIX: Added type 'number' to sum
+      const shiftExpenses = expenses?.reduce((sum: number, e) => sum + (e.amount || 0), 0) || 0;
 
       setShiftStats({
         sales: shiftSales,
@@ -82,10 +86,7 @@ export default function DashboardPage() {
         shiftId: currentShift.id
       });
 
-      // Update pending count
       setStats(prev => ({ ...prev, pendingPayments: pending }));
-
-      // 4. Fetch Lifetime Stats (Optional, can be separate)
       fetchLifetimeStats();
 
     } catch (error) {
@@ -100,48 +101,13 @@ export default function DashboardPage() {
         .from("sales")
         .select("total_amount");
      
-     const total = allSales?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+     // FIX: Added type 'number' to sum
+     const total = allSales?.reduce((sum: number, s) => sum + (s.total_amount || 0), 0) || 0;
      setStats(prev => ({
         ...prev,
         totalSales: total,
         transactionCount: allSales?.length || 0
      }));
-  };
-
-  const fetchTopSellers = async () => {
-    if (!organizationId) return;
-    try {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const { data, error } = await supabase
-        .from('sales')
-        .select('items')
-        .eq('organization_id', organizationId)
-        .gte('created_at', thirtyDaysAgo.toISOString());
-
-      if (error) throw error;
-
-      const productCounts: Record<string, { name: string; quantity: number }> = {};
-
-      data?.forEach((sale: any) => {
-        sale.items?.forEach((item: any) => {
-          if (!productCounts[item.id]) {
-            productCounts[item.id] = { name: item.name, quantity: 0 };
-          }
-          productCounts[item.id].quantity += item.quantity;
-        });
-      });
-
-      const sorted = Object.values(productCounts)
-        .sort((a, b) => b.quantity - a.quantity)
-        .slice(0, 5);
-
-      setTopSellers(sorted);
-
-    } catch (err) {
-      console.error("Failed to fetch top sellers", err);
-    }
   };
 
   if (loading) return <div className="p-8 text-gray-500">Loading dashboard...</div>;

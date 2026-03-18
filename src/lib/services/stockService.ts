@@ -1,40 +1,61 @@
  // src/lib/services/stockService.ts
 import { createClient } from "@/lib/supabase/client";
+import { auditService } from "./auditService";
 
 export const stockService = {
   
   /**
-   * Adds stock to a product and logs the movement.
-   * Used when receiving inventory from suppliers.
+   * Internal helper to log stock movements (Critical Data)
+   */
+  async _logMovement(productId: string, quantity: number, type: string, notes: string, organizationId: string) {
+    const supabase = createClient();
+    await supabase.from('stock_movements').insert({
+      product_id: productId,
+      quantity: quantity,
+      type: type,
+      notes: notes,
+      organization_id: organizationId
+    });
+  },
+
+  /**
+   * Add stock (Purchases)
+   * Optimized: Does NOT wait for Audit Log.
    */
   async addStock(productId: string, quantity: number, organizationId: string, notes?: string) {
     const supabase = createClient();
     
     try {
-      // 1. Log the movement first (for reporting/history)
-      const { error: logError } = await supabase
-        .from('stock_movements')
-        .insert({
-          product_id: productId,
-          quantity: quantity,
-          type: 'purchase',
-          notes: notes || 'Stock In',
-          organization_id: organizationId
-        });
+      // 1. Get Product Name (Await - needed for UI confirmation)
+      const { data: product } = await supabase
+        .from('products')
+        .select('name')
+        .eq('id', productId)
+        .single();
 
-      if (logError) throw logError;
+      // 2. Log to Stock Movements (Await - Critical for reports)
+      await this._logMovement(productId, quantity, 'purchase', notes || 'Stock In', organizationId);
 
-      // 2. Update the product stock atomically using RPC
-      // This prevents race conditions if two people add stock at once
+      // 3. Update Product Stock (Await - Critical for inventory)
       const { error: rpcError } = await supabase.rpc('increment_stock', {
         p_id: productId,
         qty: quantity
       });
 
-      if (rpcError) {
-        // If RPC fails, we might want to delete the log, but for now we throw
-        throw rpcError;
-      }
+      if (rpcError) throw rpcError;
+
+      // 4. Audit Trail (NON-BLOCKING)
+      // We call .log() but DO NOT await it. The UI returns success immediately.
+      auditService.log(
+        'STOCK_ADDED', 
+        `Added ${quantity} units of ${product?.name || 'Product'}`,
+        { 
+          entity_type: 'Product', 
+          entity_id: productId, 
+          organization_id: organizationId,
+          metadata: { quantity, notes } 
+        }
+      );
 
     } catch (err: any) {
       console.error("Stock Service Error:", err);
@@ -43,28 +64,51 @@ export const stockService = {
   },
 
   /**
-   * Deducts stock (used internally by sales process).
-   * Usually called via RPC 'process_sale', but exposed here if needed.
+   * Deduct stock (Sales)
+   * Optimized: Does NOT wait for Audit Log.
    */
-  async deductStock(productId: string, quantity: number) {
+  async deductStock(productId: string, quantity: number, organizationId: string, reason?: string) {
     const supabase = createClient();
-    
-    const { error } = await supabase.rpc('decrement_stock', {
-      p_id: productId,
-      qty: quantity
-    });
 
-    if (error) throw error;
+    try {
+      // 1. Get Product Name
+      const { data: product } = await supabase
+        .from('products')
+        .select('name')
+        .eq('id', productId)
+        .single();
+
+      // 2. Update DB (Await - Critical)
+      const { error: rpcError } = await supabase.rpc('decrement_stock', {
+        p_id: productId,
+        qty: quantity
+      });
+
+      if (rpcError) throw rpcError;
+
+      // 3. Audit Trail (NON-BLOCKING)
+      auditService.log(
+        'STOCK_REMOVED', 
+        `Sold/Removed ${quantity} units of ${product?.name || 'Product'}`,
+        { 
+          entity_type: 'Product', 
+          entity_id: productId, 
+          organization_id: organizationId,
+          metadata: { quantity, reason } 
+        }
+      );
+
+    } catch (err: any) {
+      console.error("Deduct Stock Error:", err);
+      // Re-throw if critical, ignore if just log error
+      throw err;
+    }
   },
 
   // ==========================================
-  // REPORTING HELPERS FOR DAILY STOCK RETURN
+  // REPORTING HELPERS (Read-Only)
   // ==========================================
 
-  /**
-   * Gets the current stock levels for all products.
-   * Used to determine "Actual Stock" at the end of the day.
-   */
   async getStockSnapshot(organizationId: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -81,10 +125,6 @@ export const stockService = {
     return snapshot;
   },
 
-  /**
-   * Calculates how many items were sold in a specific time range.
-   * Used for "Sales" column in report.
-   */
   async getSalesCountInRange(organizationId: string, startTime: string, endTime: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -106,10 +146,6 @@ export const stockService = {
     return counts;
   },
   
-  /**
-   * Calculates how many items were purchased/received in a specific time range.
-   * Used for "Purchases" column in report.
-   */
   async getPurchasesCountInRange(organizationId: string, startTime: string, endTime: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -128,8 +164,7 @@ export const stockService = {
     });
     return counts;
   },
-
-  // Shift specific helpers (keeping your existing logic)
+  
   async getShiftSalesCount(shiftOpenedAt: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -138,7 +173,7 @@ export const stockService = {
       .gte('created_at', shiftOpenedAt);
       
     if (error) throw error;
-    
+      
     const counts: Record<string, number> = {};
     data?.forEach((sale: any) => {
       const items = sale.items as any[];

@@ -2,12 +2,14 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const shiftService = {
-  async getCurrentShift() {
+  async getCurrentShift(organizationId: string | null) {
     const supabase = createClient();
-    
+    if (!organizationId) return null;
+
     const { data, error } = await supabase
       .from('shifts')
       .select('*')
+      .eq('organization_id', organizationId)
       .eq('status', 'active')
       .order('opened_at', { ascending: false })
       .maybeSingle();
@@ -16,16 +18,13 @@ export const shiftService = {
       console.error("Error fetching current shift", error);
       return null;
     }
-    
     return data;
   },
 
   async openShift(openingCash: number) {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
     const orgId = user?.user_metadata?.organization_id;
-    
     if (!orgId) throw new Error("Organization ID missing");
 
     const { data, error } = await supabase
@@ -61,10 +60,8 @@ export const shiftService = {
     if (error) throw error;
   },
 
-  // ADD THIS FUNCTION
   async getShiftHistory(organizationId: string) {
     const supabase = createClient();
-    
     const { data, error } = await supabase
       .from('shifts')
       .select('*')
