@@ -16,8 +16,8 @@ export default function ProfitLossPage() {
   
   const [report, setReport] = useState({
     revenue: 0,
-    cogs: 0, // NEW: Cost of Goods Sold
-    grossProfit: 0, // NEW: Revenue - COGS
+    cogs: 0,
+    grossProfit: 0,
     fixedCosts: 0,
     variableCosts: 0,
     totalExpenses: 0,
@@ -46,17 +46,18 @@ export default function ProfitLossPage() {
         endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0, 23, 59, 59);
       }
 
-      // 1. Fetch Sales (Revenue & Items for COGS)
+      // 1. Fetch Sales Revenue
       const { data: sales } = await supabase
-        .from('sales')
-        .select('total_amount, items')
-        .eq('organization_id', organizationId)
+        .from("sales")
+        .select("total_amount, items")
+        .eq("organization_id", organizationId)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString());
 
-      const revenue = sales?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+      // FIX: Added types to reduce parameters
+      const revenue = sales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
       
-      // CALCULATE COGS (Sum of Cost Price * Quantity Sold)
+      // CALCULATE COGS
       let cogs = 0;
       sales?.forEach(sale => {
         sale.items?.forEach((item: any) => {
@@ -74,8 +75,9 @@ export default function ProfitLossPage() {
         .gte('date', startDate.toISOString().split('T')[0])
         .lte('date', endDate.toISOString().split('T')[0]);
 
-      const fixedCosts = expenses?.filter(e => e.cost_type === 'fixed').reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
-      const variableCosts = expenses?.filter(e => e.cost_type === 'variable').reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
+      // FIX: Added types to reduce parameters
+      const fixedCosts = expenses?.filter(e => e.cost_type === 'fixed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
+      const variableCosts = expenses?.filter(e => e.cost_type === 'variable').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
       const totalExpenses = fixedCosts + variableCosts;
 
       setReport({
@@ -85,7 +87,7 @@ export default function ProfitLossPage() {
         fixedCosts,
         variableCosts,
         totalExpenses,
-        netProfit: grossProfit - totalExpenses // Net Profit from Gross Profit
+        netProfit: grossProfit - totalExpenses
       });
 
     } catch (err) {
@@ -102,7 +104,7 @@ export default function ProfitLossPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Profit & Loss Statement</h1>
-          <p className="text-gray-500 text-sm mt-1">Accurate financial analysis with COGS.</p>
+          <p className="text-gray-500 text-sm mt-1">Net Profit Calculation & Analysis.</p>
         </div>
         <div className="flex gap-2 items-center">
             <button onClick={() => setViewMode('daily')} className={`px-4 py-2 rounded text-sm font-bold ${viewMode === 'daily' ? 'bg-black text-white' : 'bg-gray-100'}`}>Daily</button>
@@ -128,59 +130,41 @@ export default function ProfitLossPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          
-          {/* Section 1: Revenue & Gross Profit */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Total Revenue (Sales)</span>
-              <span className="font-bold text-green-600">{formatCurrency(report.revenue)}</span>
-            </div>
-            
-            <div className="flex justify-between text-sm border-b pb-2">
-              <span className="text-gray-500">Less: Cost of Goods Sold (COGS)</span>
-              <span className="font-medium text-red-500">({formatCurrency(report.cogs)})</span>
-            </div>
-            
-            <div className="flex justify-between items-center bg-blue-50 p-3 rounded-lg">
-              <span className="font-bold text-blue-800">Gross Profit</span>
-              <span className="text-lg font-bold text-blue-600">{formatCurrency(report.grossProfit)}</span>
-            </div>
-            <p className="text-xs text-gray-400">Gross Profit = Revenue - Cost of Stock Sold</p>
+          {/* Revenue */}
+          <div className="flex justify-between items-center border-b pb-3">
+            <span className="text-gray-600 font-medium">Total Revenue (Sales)</span>
+            <span className="text-xl font-bold text-green-600">{formatCurrency(report.revenue)}</span>
           </div>
 
-          {/* Section 2: Operating Expenses */}
-          <div className="space-y-2 pt-4 border-t mt-4">
+          {/* Expenses Breakdown */}
+          <div className="space-y-2 pl-4">
             <p className="text-sm font-semibold text-gray-500">Less: Operating Expenses</p>
             
-            <div className="flex justify-between text-sm pl-2">
-              <span className="text-gray-500">Variable Costs</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Variable Costs (e.g. Stock, Transport)</span>
               <span className="font-medium text-orange-600">({formatCurrency(report.variableCosts)})</span>
             </div>
             
-            <div className="flex justify-between text-sm pl-2">
-              <span className="text-gray-500">Fixed Costs</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Fixed Costs (e.g. Rent, Salary)</span>
               <span className="font-medium text-blue-600">({formatCurrency(report.fixedCosts)})</span>
-            </div>
-
-            <div className="flex justify-between items-center border-t pt-2 mt-2">
-              <span className="font-medium text-gray-600">Total Expenses</span>
-              <span className="font-bold text-red-500">({formatCurrency(report.totalExpenses)})</span>
             </div>
           </div>
 
-          {/* Section 3: Net Profit */}
-          <div className={`flex justify-between items-center p-5 rounded-lg mt-4 ${report.netProfit >= 0 ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
-            <div>
-              <span className={`text-lg font-bold ${report.netProfit >= 0 ? 'text-green-900' : 'text-red-900'}`}>
-                NET PROFIT
-              </span>
-              <p className="text-xs text-gray-400 mt-1">Gross Profit - Expenses</p>
-            </div>
-            <span className={`text-3xl font-bold ${report.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="flex justify-between items-center border-t pt-3 mt-2">
+            <span className="text-gray-600 font-medium">Total Expenses</span>
+            <span className="font-bold text-red-500">({formatCurrency(report.totalExpenses)})</span>
+          </div>
+
+          {/* Net Profit */}
+          <div className={`flex justify-between items-center p-4 rounded-lg mt-4 ${report.netProfit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+            <span className={`text-lg font-bold ${report.netProfit >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+              NET PROFIT
+            </span>
+            <span className={`text-2xl font-bold ${report.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {formatCurrency(report.netProfit)}
             </span>
           </div>
-
         </div>
       </div>
     </div>
