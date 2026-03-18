@@ -54,12 +54,12 @@ export default function ProfitLossPage() {
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString());
 
-      // FIX: Added types to reduce parameters
       const revenue = sales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
       
       // CALCULATE COGS
       let cogs = 0;
-      sales?.forEach(sale => {
+      // FIX: Added : any to sale
+      sales?.forEach((sale: any) => {
         sale.items?.forEach((item: any) => {
           cogs += (item.cost_price || 0) * item.quantity;
         });
@@ -75,7 +75,6 @@ export default function ProfitLossPage() {
         .gte('date', startDate.toISOString().split('T')[0])
         .lte('date', endDate.toISOString().split('T')[0]);
 
-      // FIX: Added types to reduce parameters
       const fixedCosts = expenses?.filter(e => e.cost_type === 'fixed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
       const variableCosts = expenses?.filter(e => e.cost_type === 'variable').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
       const totalExpenses = fixedCosts + variableCosts;
