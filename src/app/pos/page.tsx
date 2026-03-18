@@ -8,9 +8,7 @@ import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
 import { PaymentModal } from "@/components/pos/PaymentModal";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
-import { CustomerModal } from "@/components/pos/CustomerModal";
 import { QuotationModal } from "@/components/pos/QuotationModal";
-import { customerService } from "@/lib/services/customerService";
 import { offlineService } from "@/lib/services/offlineService";
 import { quotationService } from "@/lib/services/quotationService";
 import { useOrganization } from "@/lib/context/OrganizationContext";
@@ -31,11 +29,8 @@ export default function POSPage() {
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [isTaxEnabled, setIsTaxEnabled] = useState(true);
-  const [isCreditEnabled, setIsCreditEnabled] = useState(false);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<any>(null);
-  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [pendingSaleData, setPendingSaleData] = useState<any>(null);
   const [isOnline, setIsOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
@@ -81,7 +76,7 @@ export default function POSPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const record = { organization_id: organizationId, user_id: user?.id, total_amount: total, tax_amount: tax, subtotal_amount: subtotal, subtotal: subtotal, items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, cost_price: i.cost_price || 0, quantity: i.quantity })), payment_method: method, status: method === "M-Pesa" ? "pending" : "completed", created_at: new Date().toISOString() };
-      if (method === "Credit") { setPendingSaleData(record); setIsCustomerModalOpen(true); setIsProcessing(false); return; }
+      
       const res = await offlineService.processSale(record);
       setFilteredProducts(await offlineService.getLocalProducts());
       setPendingCount(await offlineService.getPendingCount());
@@ -89,18 +84,6 @@ export default function POSPage() {
       setIsReceiptOpen(true);
       showToast(res.offline ? "Saved Offline" : "Sale Completed!", "success");
     } catch (e: any) { showToast(e.message || "Error", "error"); } finally { setIsProcessing(false); }
-  };
-
-  const handleCustomerSelect = async (customer: any) => {
-    setIsCustomerModalOpen(false); if (!pendingSaleData) return; setIsProcessing(true);
-    try {
-      const rec = { ...pendingSaleData, customer_id: customer.id, status: 'credit' };
-      const res = await offlineService.processSale(rec);
-      await customerService.recordDebt(customer.id, res.id, pendingSaleData.total_amount);
-      setFilteredProducts(await offlineService.getLocalProducts());
-      clearCart(); setLastSaleData({ id: res.id, items: cart, total, subtotal, tax, paymentMethod: "Credit", customerName: customer.name, date: new Date().toISOString() });
-      setIsReceiptOpen(true); showToast("Credit Sale Recorded", "success");
-    } catch (e) { showToast("Error", "error"); } finally { setIsProcessing(false); setPendingSaleData(null); }
   };
 
   const handleSaveQuote = async () => { if (!cart.length || !organizationId) return; const name = prompt("Customer Name:"); try { await quotationService.saveQuotation({ organization_id: organizationId, items: cart, total_amount: total, customer_name: name || null, status: 'pending' }); showToast("Quote Saved!", "success"); clearCart(); } catch (e: any) { showToast("Error: " + e.message, "error"); } };
@@ -124,17 +107,15 @@ export default function POSPage() {
         <section className="w-full lg:w-96 flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)]">
           <div className="bg-card border rounded-lg p-3 shrink-0 space-y-3">
             <div className="flex items-center justify-between"><p className="font-medium text-sm">VAT (16%)</p><button onClick={() => setIsTaxEnabled(!isTaxEnabled)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isTaxEnabled ? "bg-green-600" : "bg-gray-300"}`}><span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isTaxEnabled ? "translate-x-6" : "translate-x-1"}`} /></button></div>
-            <div className="flex items-center justify-between border-t pt-3"><p className="font-medium text-sm">Allow Credit</p><button onClick={() => setIsCreditEnabled(!isCreditEnabled)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isCreditEnabled ? "bg-blue-600" : "bg-gray-300"}`}><span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isCreditEnabled ? "translate-x-6" : "translate-x-1"}`} /></button></div>
           </div>
           <div className="flex-1 min-h-0 flex flex-col">
-            <CartPanel cart={cart} itemCount={itemCount} subtotal={subtotal} tax={tax} total={total} taxRate={isTaxEnabled ? 16 : 0} isProcessing={isProcessing} onUpdateQty={updateQuantity} onRemove={removeFromCart} onClear={clearCart} onCheckout={() => { if (cart.length === 0) return; if (isCreditEnabled) handlePaymentSuccess("Credit"); else setIsPaymentOpen(true); }} isCreditMode={isCreditEnabled} />
+            <CartPanel cart={cart} itemCount={itemCount} subtotal={subtotal} tax={tax} total={total} taxRate={isTaxEnabled ? 16 : 0} isProcessing={isProcessing} onUpdateQty={updateQuantity} onRemove={removeFromCart} onClear={clearCart} onCheckout={() => { if (cart.length === 0) return; setIsPaymentOpen(true); }} />
             {cart.length > 0 && (<div className="mt-2 flex gap-2"><button onClick={handleSaveQuote} className="flex-1 py-2 border rounded-lg text-xs font-bold hover:bg-gray-50">Save as Quote</button></div>)}
           </div>
         </section>
       </div>
-      <PaymentModal isOpen={isPaymentOpen} onClose={() => setIsPaymentOpen(false)} total={total} items={cart} onComplete={handlePaymentSuccess} onStkSent={() => showToast("STK Sent", "success")} isCreditMode={isCreditEnabled} />
+      <PaymentModal isOpen={isPaymentOpen} onClose={() => setIsPaymentOpen(false)} total={total} items={cart} onComplete={handlePaymentSuccess} onStkSent={() => showToast("STK Sent", "success")} />
       <ReceiptModal isOpen={isReceiptOpen} onClose={() => setIsReceiptOpen(false)} saleData={lastSaleData} />
-      <CustomerModal isOpen={isCustomerModalOpen} onClose={() => { setIsCustomerModalOpen(false); setPendingSaleData(null); }} onSelectCustomer={handleCustomerSelect} organizationId={organizationId} />
       <QuotationModal isOpen={isQuoteModalOpen} onClose={() => setIsQuoteModalOpen(false)} onLoad={handleLoadQuote} organizationId={organizationId} />
     </div>
   );

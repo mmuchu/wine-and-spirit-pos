@@ -2,49 +2,48 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const expenseService = {
-  async getExpenses() {
+  async getTotalExpensesThisMonth() {
+    const supabase = createClient();
+    
+    // Get current user to filter by organization
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return 0;
+
+    // Get start of current month
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    try {
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('amount')
+        .eq('organization_id', user.user_metadata?.organization_id || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11')
+        .gte('date', startOfMonth);
+
+      if (error) throw error;
+      
+      return data?.reduce((sum: number, e: any) => sum + Number(e.amount), 0) || 0;
+    } catch (err) {
+      console.error("Failed to load expenses", err);
+      return 0; // Return 0 instead of crashing
+    }
+  },
+
+  async getExpenses(organizationId: string) {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('expenses')
       .select('*')
+      .eq('organization_id', organizationId)
       .order('date', { ascending: false });
-    if (error) throw error;
-    return data;
-  },
-
-  async addExpense(expense: { description: string; amount: number; category: string; date: string; notes?: string }) {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Not authenticated");
-
-    const { data, error } = await supabase
-      .from('expenses')
-      .insert({
-        ...expense,
-        user_id: user.id,
-        organization_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async getTotalExpensesThisMonth() {
-    const supabase = createClient();
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const { data, error } = await supabase
-      .from('expenses')
-      .select('amount')
-      .gte('date', startOfMonth.toISOString());
-
-    if (error) throw error;
     
-    // FIX: Added type 'number' to sum
-    return data?.reduce((sum: number, exp: any) => sum + Number(exp.amount), 0) || 0;
+    if (error) throw error;
+    return data || [];
+  },
+
+  async addExpense(expense: any) {
+    const supabase = createClient();
+    const { error } = await supabase.from('expenses').insert(expense);
+    if (error) throw error;
   }
 };

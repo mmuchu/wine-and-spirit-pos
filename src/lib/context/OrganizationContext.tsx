@@ -19,15 +19,17 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const initOrg = async () => {
       const { data: { user } } = await supabase.auth.getUser();
+      
       if (user) {
-        // Check user metadata for organization_id
         let orgId = user.user_metadata?.organization_id;
         
-        // If missing (legacy users), assign the default existing ID
-        if (!orgId) {
-          orgId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-          // Update user metadata for future use
-          await supabase.auth.updateUser({ data: { organization_id: orgId } });
+        // FIX: Check if orgId is missing OR if it is the invalid string "undefined"
+        if (!orgId || orgId === "undefined") {
+           console.warn("Invalid Org ID found, resetting to default...");
+           orgId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'; 
+           
+           // Fix the user metadata permanently
+           await supabase.auth.updateUser({ data: { organization_id: orgId } });
         }
         
         setOrganizationId(orgId);
@@ -36,6 +38,22 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
     };
     
     initOrg();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+       if (!session?.user) {
+         setOrganizationId(null);
+       } else {
+         let orgId = session.user.user_metadata?.organization_id;
+         if (!orgId || orgId === "undefined") {
+            orgId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+         }
+         setOrganizationId(orgId);
+       }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   return (
