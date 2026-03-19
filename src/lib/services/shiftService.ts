@@ -1,4 +1,4 @@
- // src/lib/services/shiftService.ts
+// src/lib/services/shiftService.ts
 import { createClient } from "@/lib/supabase/client";
 
 export const shiftService = {
@@ -82,23 +82,22 @@ export const shiftService = {
     return data;
   },
 
-  // FIX: Added helper methods for shift calculations
+  // FIX: Corrected variable name openedAt
   async getShiftSales(shiftId: string, openedAt: string) {
     const supabase = createClient();
     
-    // Prefer filtering by shift_id if available, otherwise use date
     const { data, error } = await supabase
       .from('sales')
       .select('total_amount')
-      .gte('created_at', opened_at);
+      .gte('created_at', openedAt); // FIX: used openedAt
 
     if (error) throw error;
     
-    // Sum total_amount
     const total = data?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
     return total;
   },
 
+  // FIX: Corrected variable name openedAt
   async getShiftPurchases(openedAt: string) {
     const supabase = createClient();
     
@@ -106,7 +105,7 @@ export const shiftService = {
       .from('stock_movements')
       .select('quantity')
       .eq('type', 'purchase')
-      .gte('created_at', openedAt);
+      .gte('created_at', openedAt); // FIX: used openedAt
 
     if (error) throw error;
     
