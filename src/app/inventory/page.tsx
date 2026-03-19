@@ -77,7 +77,6 @@ export default function InventoryPage() {
   };
 
   const handleStockIn = async () => {
-    // FIX: Added organizationId to the guard clause
     if (!selectedProduct || !stockInQty || !organizationId) return;
     
     setSubmitting(true);
