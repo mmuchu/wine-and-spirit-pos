@@ -24,14 +24,15 @@ export const auditService = {
         entity_id: details.entity_id || null,
         description: description,
         metadata: details.metadata || {}
-      // FIX: Removed destructuring to avoid implicit any error
-      }).then((result) => {
+      // FIX: Typed result as any
+      }).then((result: any) => {
         if (result.error) {
           console.error("Audit Log Failed:", result.error.message);
         }
       });
 
-    }).catch(err => console.error("Auth error in audit:", err));
+    // FIX: Typed err as any
+    }).catch((err: any) => console.error("Auth error in audit:", err));
   },
 
   /**
