@@ -24,14 +24,14 @@ export const auditService = {
         entity_id: details.entity_id || null,
         description: description,
         metadata: details.metadata || {}
-      // FIX: Typed result as any
+      // FIX: Explicitly type 'result' as any to satisfy TypeScript
       }).then((result: any) => {
         if (result.error) {
           console.error("Audit Log Failed:", result.error.message);
         }
       });
 
-    // FIX: Typed err as any
+    // FIX: Explicitly type 'err' as any
     }).catch((err: any) => console.error("Auth error in audit:", err));
   },
 
