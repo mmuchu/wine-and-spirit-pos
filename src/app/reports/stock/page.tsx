@@ -28,7 +28,6 @@ export default function DailyStockReturnPage() {
   const [currentShift, setCurrentShift] = useState<any>(null);
 
   useEffect(() => {
-    // Check if we are in "Closing Shift" mode from redirect
     const action = searchParams.get('action');
     const cash = searchParams.get('cash');
     
@@ -50,7 +49,6 @@ export default function DailyStockReturnPage() {
       const shift = await shiftService.getCurrentShift(organizationId);
       setCurrentShift(shift);
       
-      // If we are trying to close but no active shift found, force back to dashboard
       if (isClosingShift && !shift) {
           alert("No active shift found to close. Redirecting...");
           router.push('/');
@@ -97,17 +95,18 @@ export default function DailyStockReturnPage() {
 
       if (purError) throw new Error(`Purchases Error: ${purError.message}`);
 
-      const report = products.map(p => {
+      // FIX: Added : any to parameters
+      const report = products.map((p: any) => {
         let soldQty = 0;
-        sales?.forEach(sale => {
+        sales?.forEach((sale: any) => {
           sale.items?.forEach((item: any) => {
             if (item.id === p.id) soldQty += item.quantity;
           });
         });
 
         const purchasedQty = purchases
-          ?.filter(pur => pur.product_id === p.id)
-          .reduce((sum, pur) => sum + pur.quantity, 0) || 0;
+          ?.filter((pur: any) => pur.product_id === p.id)
+          .reduce((sum: number, pur: any) => sum + pur.quantity, 0) || 0;
 
         const closingStock = p.stock || 0;
         const openingStock = closingStock + soldQty - purchasedQty;
@@ -119,16 +118,15 @@ export default function DailyStockReturnPage() {
           opening: openingStock,
           purchased: purchasedQty,
           sold: soldQty,
-          expected: expectedStock, // This is System Stock
+          expected: expectedStock,
           systemStock: closingStock
         };
       });
 
       setReportData(report);
 
-      // Initialize inputs with Expected values
       const initialInputs: Record<string, number> = {};
-      report.forEach(r => { initialInputs[r.id] = r.expected; });
+      report.forEach((r: any) => { initialInputs[r.id] = r.expected; });
       setActualInputs(initialInputs);
 
     } catch (err: any) {
@@ -151,9 +149,7 @@ export default function DailyStockReturnPage() {
     return actual - item.expected; 
   };
 
-  // --- MAIN ACTION ---
   const handleSaveAndClose = async () => {
-    // 1. Validation
     if (!organizationId) {
         alert("Error: Organization ID is missing.");
         return;
@@ -166,18 +162,15 @@ export default function DailyStockReturnPage() {
 
     setSaving(true);
     try {
-      // 2. Identify adjustments
       const adjustments = reportData.filter(r => {
         const actual = actualInputs[r.id];
         return actual !== r.expected;
       });
 
-      // 3. Update Product Stock in DB (Closing Stock -> Opening Stock for next shift)
       for (const item of adjustments) {
         const actual = actualInputs[item.id];
         const variance = actual - item.expected;
 
-        // Update products table
         const { error: updateError } = await supabase
           .from('products')
           .update({ stock: actual })
@@ -185,7 +178,6 @@ export default function DailyStockReturnPage() {
         
         if (updateError) throw updateError;
 
-        // Log movement if variance exists
         if (variance !== 0) {
           await supabase.from('stock_movements').insert({
             product_id: item.id,
@@ -197,21 +189,20 @@ export default function DailyStockReturnPage() {
         }
       }
 
-      // 4. If Closing Shift, record the shift closure
       if (isClosingShift && currentShift) {
         const notes = searchParams.get('notes') || "";
         await shiftService.closeShift(
           currentShift.id, 
           closingCash, 
-          actualInputs, // Save the stock snapshot
+          actualInputs,
           notes
         );
         
         alert("Shift Closed & Stock Updated successfully!");
-        router.push('/shift-history'); // Redirect to history
+        router.push('/shift-history');
       } else {
         alert("Stock Adjustments Saved!");
-        generateReport(); // Refresh
+        generateReport();
       }
 
     } catch (err: any) {
@@ -318,7 +309,6 @@ export default function DailyStockReturnPage() {
         </div>
       </div>
 
-      {/* Combined Action Button */}
       <div className="flex justify-end gap-4 no-print">
         <button 
           onClick={() => router.back()}
