@@ -24,10 +24,10 @@ export const auditService = {
         entity_id: details.entity_id || null,
         description: description,
         metadata: details.metadata || {}
-      // FIX: Type the error object directly
-      }).then((res: { error: any }) => {
-        if (res.error) {
-          console.error("Audit Log Failed:", res.error.message);
+      // FIX: Removed destructuring to avoid implicit any error
+      }).then((result) => {
+        if (result.error) {
+          console.error("Audit Log Failed:", result.error.message);
         }
       });
 
