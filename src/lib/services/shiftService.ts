@@ -70,7 +70,6 @@ export const shiftService = {
     return data;
   },
 
-  // FIX: Added getShiftDetails
   async getShiftDetails(shiftId: string) {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -81,5 +80,37 @@ export const shiftService = {
 
     if (error) throw error;
     return data;
+  },
+
+  // FIX: Added helper methods for shift calculations
+  async getShiftSales(shiftId: string, openedAt: string) {
+    const supabase = createClient();
+    
+    // Prefer filtering by shift_id if available, otherwise use date
+    const { data, error } = await supabase
+      .from('sales')
+      .select('total_amount')
+      .gte('created_at', opened_at);
+
+    if (error) throw error;
+    
+    // Sum total_amount
+    const total = data?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
+    return total;
+  },
+
+  async getShiftPurchases(openedAt: string) {
+    const supabase = createClient();
+    
+    const { data, error } = await supabase
+      .from('stock_movements')
+      .select('quantity')
+      .eq('type', 'purchase')
+      .gte('created_at', openedAt);
+
+    if (error) throw error;
+    
+    const total = data?.reduce((sum: number, m: any) => sum + (m.quantity || 0), 0) || 0;
+    return total;
   }
 };
