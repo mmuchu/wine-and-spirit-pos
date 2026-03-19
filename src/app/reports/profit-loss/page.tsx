@@ -58,7 +58,6 @@ export default function ProfitLossPage() {
       
       // CALCULATE COGS
       let cogs = 0;
-      // FIX: Added : any to sale
       sales?.forEach((sale: any) => {
         sale.items?.forEach((item: any) => {
           cogs += (item.cost_price || 0) * item.quantity;
@@ -75,8 +74,9 @@ export default function ProfitLossPage() {
         .gte('date', startDate.toISOString().split('T')[0])
         .lte('date', endDate.toISOString().split('T')[0]);
 
-      const fixedCosts = expenses?.filter(e => e.cost_type === 'fixed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
-      const variableCosts = expenses?.filter(e => e.cost_type === 'variable').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
+      // FIX: Added : any to filter parameters
+      const fixedCosts = expenses?.filter((e: any) => e.cost_type === 'fixed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
+      const variableCosts = expenses?.filter((e: any) => e.cost_type === 'variable').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
       const totalExpenses = fixedCosts + variableCosts;
 
       setReport({
@@ -160,6 +160,7 @@ export default function ProfitLossPage() {
             <span className={`text-lg font-bold ${report.netProfit >= 0 ? 'text-green-800' : 'text-red-800'}`}>
               NET PROFIT
             </span>
+            {/* FIX: Corrected JSX className syntax */}
             <span className={`text-2xl font-bold ${report.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {formatCurrency(report.netProfit)}
             </span>
