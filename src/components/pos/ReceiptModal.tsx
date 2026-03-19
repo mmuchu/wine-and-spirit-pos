@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from "react";
 import { formatCurrency } from "./utils";
 import { settingsService } from "@/lib/services/settingsService";
+import { useOrganization } from "@/lib/context/OrganizationContext"; // FIX: Import hook
 
 interface Props {
   isOpen: boolean;
@@ -12,30 +13,28 @@ interface Props {
 }
 
 export function ReceiptModal({ isOpen, onClose, saleData }: Props) {
+  const { organizationId } = useOrganization(); // FIX: Get ID from context
   const [settings, setSettings] = useState<any>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && organizationId) { // FIX: Wait for ID
       loadSettings();
     }
-  }, [isOpen]);
+  }, [isOpen, organizationId]);
 
   const loadSettings = async () => {
-    const s = await settingsService.getSettings();
+    if (!organizationId) return; // Safety check
+    const s = await settingsService.getSettings(organizationId); // FIX: Pass ID
     setSettings(s);
   };
 
   const handlePrint = () => {
     if (printRef.current) {
       const printContents = printRef.current.innerHTML;
-      const originalContents = document.body.innerHTML;
-      
-      // Optional: Create a separate print window
       const printWindow = window.open('', '_blank');
       if (printWindow) {
         printWindow.document.write('<html><head><title>Receipt</title>');
-        // Add minimal print styles
         printWindow.document.write('<style>body { font-family: monospace; padding: 20px; font-size: 12px; } h2 { margin-bottom: 5px; } hr { border: 0; border-top: 1px dashed #000; margin: 10px 0; } .right { text-align: right; }</style>');
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContents);
@@ -55,7 +54,7 @@ export function ReceiptModal({ isOpen, onClose, saleData }: Props) {
   const tax = saleData.tax || 0;
   const items = saleData.items || [];
   const date = new Date(saleData.date);
-  const customer = saleData.customerName; // From credit sale logic
+  const customer = saleData.customerName; 
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 print:hidden">
