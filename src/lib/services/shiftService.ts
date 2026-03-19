@@ -11,7 +11,6 @@ export const shiftService = {
       .select('*')
       .eq('organization_id', organizationId)
       .eq('status', 'active')
-      .order('opened_at', { ascending: false })
       .maybeSingle();
 
     if (error) {
@@ -45,7 +44,6 @@ export const shiftService = {
 
   async closeShift(shiftId: string, closingCash: number, closingStock: Record<string, number>, notes: string) {
     const supabase = createClient();
-    
     const { error } = await supabase
       .from('shifts')
       .update({
@@ -67,6 +65,19 @@ export const shiftService = {
       .select('*')
       .eq('organization_id', organizationId)
       .order('opened_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  },
+
+  // FIX: Added getShiftDetails
+  async getShiftDetails(shiftId: string) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('id', shiftId)
+      .single();
 
     if (error) throw error;
     return data;
