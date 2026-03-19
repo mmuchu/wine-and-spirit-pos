@@ -1,5 +1,6 @@
  // src/lib/services/auditService.ts
 import { createClient } from "@/lib/supabase/client";
+import { User } from "@supabase/supabase-js"; // FIX: Import User type
 
 export const auditService = {
   /**
@@ -10,8 +11,9 @@ export const auditService = {
   log(action: string, description: string, details: any = {}) {
     const supabase = createClient();
     
-    // Get user info synchronously if possible, or fetch async
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    // Get user info asynchronously
+    // FIX: Added type 'User | null' to user variable
+    supabase.auth.getUser().then(({ data: { user }: { user: User | null } }) => {
       
       // Perform the insert in the background
       supabase.from('audit_logs').insert({
@@ -24,7 +26,6 @@ export const auditService = {
         metadata: details.metadata || {}
       }).then(({ error }) => {
         if (error) {
-          // Log error to console but don't crash the app
           console.error("Audit Log Failed:", error.message);
         }
       });
@@ -51,7 +52,7 @@ export const auditService = {
       .gte('created_at', start.toISOString())
       .lte('created_at', end.toISOString())
       .order('created_at', { ascending: false })
-      .limit(500); // Safety limit
+      .limit(500);
 
     if (error) throw error;
     return data;
