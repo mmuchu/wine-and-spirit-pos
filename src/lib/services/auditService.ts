@@ -1,6 +1,6 @@
  // src/lib/services/auditService.ts
 import { createClient } from "@/lib/supabase/client";
-import { User } from "@supabase/supabase-js"; // FIX: Import User type
+import { User } from "@supabase/supabase-js"; 
 
 export const auditService = {
   /**
@@ -12,8 +12,9 @@ export const auditService = {
     const supabase = createClient();
     
     // Get user info asynchronously
-    // FIX: Added type 'User | null' to user variable
-    supabase.auth.getUser().then(({ data: { user }: { user: User | null } }) => {
+    // FIX: Correct destructuring syntax
+    supabase.auth.getUser().then(({ data }) => {
+      const user = data.user as User | null;
       
       // Perform the insert in the background
       supabase.from('audit_logs').insert({
