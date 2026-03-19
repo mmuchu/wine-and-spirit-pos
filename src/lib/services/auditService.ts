@@ -12,7 +12,6 @@ export const auditService = {
     const supabase = createClient();
     
     // Get user info asynchronously
-    // FIX: Type the response object directly
     supabase.auth.getUser().then((response: { data: { user: User | null } }) => {
       const user = response.data.user;
       
@@ -25,9 +24,10 @@ export const auditService = {
         entity_id: details.entity_id || null,
         description: description,
         metadata: details.metadata || {}
-      }).then(({ error }) => {
-        if (error) {
-          console.error("Audit Log Failed:", error.message);
+      // FIX: Type the error object directly
+      }).then((res: { error: any }) => {
+        if (res.error) {
+          console.error("Audit Log Failed:", res.error.message);
         }
       });
 
