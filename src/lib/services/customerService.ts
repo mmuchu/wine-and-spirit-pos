@@ -2,54 +2,50 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const customerService = {
-  async getCustomers() {
+  async getCustomers(organizationId: string) {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('customers')
       .select('*')
+      .eq('organization_id', organizationId)
       .order('name');
-    if (error) throw error;
+
+    if (error) {
+      console.error("Error fetching customers", error);
+      return [];
+    }
     return data;
   },
 
-  // Accept organizationId as argument
-  async addCustomer(name: string, phone?: string, organizationId?: string) {
+  async addCustomer(name: string, phone: string, organizationId: string) {
     const supabase = createClient();
-    
-    const cleanPhone = phone && phone.trim() !== "" ? phone.trim() : null;
-
     const { data, error } = await supabase
       .from('customers')
-      .insert({ 
-        name, 
-        phone: cleanPhone,
-        organization_id: organizationId || null 
+      .insert({
+        name,
+        phone,
+        organization_id: organizationId
       })
       .select()
       .single();
+
     if (error) throw error;
     return data;
   },
 
-  async recordDebt(customerId: string, saleId: string, amount: number) {
+  async searchCustomers(query: string, organizationId: string) {
     const supabase = createClient();
-    
-    const { error: debtError } = await supabase
-      .from('debts')
-      .insert({
-        customer_id: customerId,
-        sale_id: saleId,
-        amount_due: amount,
-        status: 'unpaid'
-      });
-      
-    if (debtError) throw debtError;
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .or(`name.ilike.%${query}%,phone.ilike.%${query}%`)
+      .limit(10);
 
-    const { error: rpcError } = await supabase.rpc('increment_customer_balance', {
-      c_id: customerId,
-      amt: amount
-    });
-    
-    if (rpcError) throw rpcError;
+    if (error) {
+      console.error("Error searching customers", error);
+      return [];
+    }
+    return data;
   }
 };
