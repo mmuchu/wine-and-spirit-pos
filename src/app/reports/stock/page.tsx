@@ -1,7 +1,7 @@
  // src/app/reports/stock/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react"; // Added Suspense
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/components/pos/utils";
 import { exportToCSV } from "@/lib/utils/export";
@@ -9,7 +9,11 @@ import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function DailyStockReturnPage() {
+// FIX: Prevents build error by forcing dynamic rendering
+export const dynamic = 'force-dynamic';
+
+// 1. Create the inner component that uses useSearchParams
+function StockReportContent() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
   const router = useRouter();
@@ -22,7 +26,6 @@ export default function DailyStockReturnPage() {
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Shift Closing State
   const [isClosingShift, setIsClosingShift] = useState(false);
   const [closingCash, setClosingCash] = useState<number>(0);
   const [currentShift, setCurrentShift] = useState<any>(null);
@@ -95,7 +98,6 @@ export default function DailyStockReturnPage() {
 
       if (purError) throw new Error(`Purchases Error: ${purError.message}`);
 
-      // FIX: Added : any to parameters
       const report = products.map((p: any) => {
         let soldQty = 0;
         sales?.forEach((sale: any) => {
@@ -325,5 +327,14 @@ export default function DailyStockReturnPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+// 2. Export the default Page component wrapping the Content in Suspense
+export default function DailyStockReturnPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-400">Loading Report...</div>}>
+      <StockReportContent />
+    </Suspense>
   );
 }
