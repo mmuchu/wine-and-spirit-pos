@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Session } from '@supabase/supabase-js';
+import { Session, AuthChangeEvent } from '@supabase/supabase-js'; // FIX: Import types
 
 interface OrgContextType {
   organizationId: string | null;
@@ -25,7 +25,6 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   
-  // Create client once
   const supabase = createClient();
 
   useEffect(() => {
@@ -46,7 +45,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         }
 
         // 2. Listen for Changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, newSession: Session | null) => {
           if (!mounted) return;
           
           setSession(newSession);
