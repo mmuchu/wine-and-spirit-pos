@@ -77,7 +77,8 @@ export default function InventoryPage() {
   };
 
   const handleStockIn = async () => {
-    if (!selectedProduct || !stockInQty) return;
+    // FIX: Added organizationId to the guard clause
+    if (!selectedProduct || !stockInQty || !organizationId) return;
     
     setSubmitting(true);
     try {
@@ -198,7 +199,6 @@ export default function InventoryPage() {
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleSuccess}
         product={editingProduct}
-        // FIX: Removed organizationId prop - the modal fetches it from context automatically
       />
 
       {/* Stock In Modal */}
