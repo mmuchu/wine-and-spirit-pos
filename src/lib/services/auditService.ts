@@ -12,9 +12,9 @@ export const auditService = {
     const supabase = createClient();
     
     // Get user info asynchronously
-    // FIX: Correct destructuring syntax
-    supabase.auth.getUser().then(({ data }) => {
-      const user = data.user as User | null;
+    // FIX: Type the response object directly
+    supabase.auth.getUser().then((response: { data: { user: User | null } }) => {
+      const user = response.data.user;
       
       // Perform the insert in the background
       supabase.from('audit_logs').insert({
