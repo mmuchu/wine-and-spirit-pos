@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
-import { Product } from "@/lib/types";
+import { Product, CartItem } from "@/lib/types"; // IMPORT CartItem
 import { auditService } from "@/lib/services/auditService";
 
 export default function POSPage() {
@@ -17,7 +17,10 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [cart, setCart] = useState<Product[]>([]);
+  
+  // FIX: Use CartItem[] for the cart state
+  const [cart, setCart] = useState<CartItem[]>([]);
+  
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
 
@@ -87,7 +90,8 @@ export default function POSPage() {
             : item
         );
       }
-      return [...prev, { ...product, quantity: 1 }];
+      // FIX: Cast to CartItem when adding new
+      return [...prev, { ...product, quantity: 1 } as CartItem];
     });
     setSearchTerm("");
     setFilteredProducts([]);
@@ -119,15 +123,14 @@ export default function POSPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // FIX: Added 'subtotal' and 'tax_amount' to satisfy DB constraints
       const { data: sale, error: saleError } = await supabase
         .from("sales")
         .insert({
           organization_id: organizationId,
           user_id: user?.id,
           total_amount: total,
-          subtotal: subtotal,       // Added
-          tax_amount: tax,          // Added (Matches 'tax_amount' column)
+          subtotal: subtotal,
+          tax_amount: tax,
           payment_method: paymentMethod,
           status: paymentMethod === "mpesa" ? "pending" : "completed",
           items: cart.map((item) => ({
