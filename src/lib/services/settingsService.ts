@@ -1,39 +1,50 @@
  // src/lib/services/settingsService.ts
 import { createClient } from "@/lib/supabase/client";
 
-// Default Org ID as a safety net
-const DEFAULT_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
 export const settingsService = {
-  async getSettings(organizationId: string | null) {
+  async getSettings(organizationId: string) {
     const supabase = createClient();
-    
-    // Safety Net: Use default if ID is invalid
-    const safeId = organizationId || DEFAULT_ORG_ID;
     
     const { data, error } = await supabase
       .from('settings')
       .select('*')
-      .eq('organization_id', safeId)
-      .single();
+      .eq('organization_id', organizationId)
+      .maybeSingle(); // Use maybeSingle to avoid errors if row doesn't exist yet
 
     if (error) {
-      console.error("Failed to fetch settings", error);
+      console.error("Error fetching settings", error);
       return null;
     }
+    
+    // Return default object if no settings exist yet
+    if (!data) {
+      return { 
+        shop_name: '', address: '', phone: '', vat_number: '', 
+        mpesa_paybill: '', receipt_footer: '', vat_enabled: true 
+      };
+    }
+    
     return data;
   },
 
-  async updateSettings(organizationId: string | null, updates: any) {
+  async upsertSettings(organizationId: string, settings: any) {
     const supabase = createClient();
     
-    // Safety Net
-    const safeId = organizationId || DEFAULT_ORG_ID;
-    
+    // Construct the payload explicitly
+    const payload = {
+      organization_id: organizationId,
+      shop_name: settings.shop_name || '',
+      address: settings.address || '',
+      phone: settings.phone || '',
+      mpesa_paybill: settings.mpesa_paybill || '',
+      vat_enabled: settings.vat_enabled ?? true,
+      vat_number: settings.vat_number || '',
+      receipt_footer: settings.receipt_footer || ''
+    };
+
     const { error } = await supabase
       .from('settings')
-      .update(updates)
-      .eq('organization_id', safeId);
+      .upsert(payload, { onConflict: 'organization_id' });
 
     if (error) throw error;
   }

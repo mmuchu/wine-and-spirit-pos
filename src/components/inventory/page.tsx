@@ -1,4 +1,4 @@
- // src/app/inventory/page.tsx
+// src/app/inventory/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -7,11 +7,13 @@ import { Product } from "@/lib/types";
 import { ProductFormModal } from "@/components/inventory/ProductFormModal";
 import { stockService } from "@/lib/services/stockService";
 import { useOrganization } from "@/lib/context/OrganizationContext";
+import { useRole } from "@/lib/hooks/useRole"; // IMPORT HOOK
 import { formatCurrency } from "@/components/pos/utils";
 
 export default function InventoryPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
+  const { isAdmin } = useRole(); // GET ROLE
   
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
@@ -103,20 +105,15 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
           <p className="text-gray-500 text-sm mt-1">{products.length} products in database</p>
         </div>
-        <div className="flex gap-2">
-            <button
-              onClick={() => alert("Select a product in the table below and click 'Stock In'.")}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50"
-            >
-              + Stock In
-            </button>
-            <button
-              onClick={() => handleOpenModal()}
-              className="px-4 py-2 bg-black text-white rounded-lg text-sm font-bold hover:bg-gray-800"
-            >
-              + Add New Product
-            </button>
-        </div>
+        {/* Only Admin can add new product */}
+        {isAdmin && (
+          <button
+            onClick={() => handleOpenModal()}
+            className="px-4 py-2 bg-black text-white rounded-lg text-sm font-bold hover:bg-gray-800"
+          >
+            + Add New Product
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -132,15 +129,15 @@ export default function InventoryPage() {
 
       {/* Products Table */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        {/* CONTAINER ENABLES VERTICAL SCROLL */}
-        <div className="table-container overflow-x-auto">
-            <table className="w-full text-sm min-w-[1000px] sticky-header">
+        <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[800px]">
             <thead className="bg-muted/50 border-b">
                 <tr>
                 <th className="text-left p-3 font-semibold">Product</th>
                 <th className="text-left p-3 font-semibold">Barcode / SKU</th>
                 <th className="text-left p-3 font-semibold">Category</th>
-                <th className="text-right p-3 font-semibold">Cost (Buy)</th>
+                {/* HIDE COST FOR NON-ADMIN */}
+                {isAdmin && <th className="text-right p-3 font-semibold">Cost (Buy)</th>}
                 <th className="text-right p-3 font-semibold">Price (Sell)</th>
                 <th className="text-center p-3 font-semibold">Profit</th>
                 <th className="text-center p-3 font-semibold">Stock</th>
@@ -166,7 +163,10 @@ export default function InventoryPage() {
                         <td className="p-3 font-medium">{product.name}</td>
                         <td className="p-3 text-gray-500 font-mono text-xs">{product.sku || '-'}</td>
                         <td className="p-3 text-gray-500">{product.categories?.name || '-'}</td>
-                        <td className="p-3 text-right text-red-500">{formatCurrency(cost)}</td>
+                        {/* HIDE COST FOR NON-ADMIN */}
+                        {isAdmin && (
+                          <td className="p-3 text-right text-red-500">{formatCurrency(cost)}</td>
+                        )}
                         <td className="p-3 text-right font-bold">{formatCurrency(price)}</td>
                         <td className="p-3 text-center">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${profit > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
@@ -185,12 +185,14 @@ export default function InventoryPage() {
                         >
                             Stock In
                         </button>
-                        <button
+                        {isAdmin && (
+                          <button
                             onClick={() => handleOpenModal(product)}
                             className="text-blue-600 hover:underline font-medium text-xs"
-                        >
+                          >
                             Edit
-                        </button>
+                          </button>
+                        )}
                         </td>
                     </tr>
                     );
@@ -201,7 +203,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Product Form Modal */}
+      {/* Product Form Modal - Pass isAdmin logic inside if needed, or hide button */}
       <ProductFormModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

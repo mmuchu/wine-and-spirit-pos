@@ -1,20 +1,21 @@
  // src/lib/supabase/client.ts
 import { createBrowserClient } from '@supabase/ssr'
+import { Database } from '@/types/database' // Optional: if you have types generated
 
-// Singleton instance
-let client: ReturnType<typeof createBrowserClient> | undefined
+// Singleton pattern to prevent multiple instances in Strict Mode
+let client: ReturnType<typeof createBrowserClient> | undefined;
 
 export function createClient() {
-  // 1. If client already exists, return it (Fast!)
+  // If client already exists, return it
   if (client) {
-    return client
+    return client;
   }
 
-  // 2. Create new client only once
-  client = createBrowserClient(
+  // Create new client
+  client = createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-  
-  return client
+  );
+
+  return client;
 }

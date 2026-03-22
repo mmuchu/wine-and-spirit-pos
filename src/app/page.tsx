@@ -11,6 +11,8 @@ import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
 import { usePathname } from "next/navigation";
 
+export const dynamic = 'force-dynamic';
+
 export default function DashboardPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
@@ -32,10 +34,17 @@ export default function DashboardPage() {
   });
   
   const [topSellers, setTopSellers] = useState<any[]>([]);
+  const [slowSellers, setSlowSellers] = useState<any[]>([]); // NEW
   const [loading, setLoading] = useState(true);
+  
+  const [recentSales, setRecentSales] = useState<any[]>([]);
 
   useEffect(() => {
-    if (organizationId) fetchDashboardData();
+    if (organizationId) {
+      fetchDashboardData();
+      fetchRecentSales();
+      fetchSellingStats(); // NEW
+    }
   }, [organizationId, pathname]);
 
   useEffect(() => {
@@ -75,7 +84,6 @@ export default function DashboardPage() {
         .select('amount')
         .eq('shift_id', currentShift.id);
 
-      // FIX: Added type 'any' to 'e'
       const shiftExpenses = expenses?.reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
 
       setShiftStats({
@@ -100,13 +108,71 @@ export default function DashboardPage() {
         .from("sales")
         .select("total_amount");
      
-     // FIX: Added type 'any' to 's'
      const total = allSales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
      setStats(prev => ({
         ...prev,
         totalSales: total,
         transactionCount: allSales?.length || 0
      }));
+  };
+
+  const fetchRecentSales = async () => {
+    if (!organizationId) return;
+    try {
+      const { data } = await supabase
+        .from('sales')
+        .select('id, created_at, total_amount, payment_method')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      
+      setRecentSales(data || []);
+    } catch (err) {
+      console.error("Error fetching recent sales", err);
+    }
+  };
+
+  // NEW: Fetch Top and Slow Sellers
+  const fetchSellingStats = async () => {
+    if (!organizationId) return;
+    try {
+      // Get sales from last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const { data: sales } = await supabase
+        .from('sales')
+        .select('items')
+        .eq('organization_id', organizationId)
+        .gte('created_at', thirtyDaysAgo.toISOString());
+
+      if (!sales) return;
+
+      // Aggregate quantities
+      const productMap: Record<string, { name: string; quantity: number }> = {};
+
+      sales.forEach((sale: any) => {
+        sale.items?.forEach((item: any) => {
+          if (!productMap[item.id]) {
+            productMap[item.id] = { name: item.name, quantity: 0 };
+          }
+          productMap[item.id].quantity += item.quantity;
+        });
+      });
+
+      const productsArray = Object.values(productMap);
+      
+      // Sort Descending for Top Sellers
+      const sortedDesc = [...productsArray].sort((a, b) => b.quantity - a.quantity);
+      setTopSellers(sortedDesc.slice(0, 5));
+
+      // Sort Ascending for Slow Sellers (filter out 0 sales just in case)
+      const sortedAsc = [...productsArray].sort((a, b) => a.quantity - b.quantity);
+      setSlowSellers(sortedAsc.slice(0, 5));
+
+    } catch (err) {
+      console.error("Error fetching selling stats", err);
+    }
   };
 
   if (loading) return <div className="p-8 text-gray-500">Loading dashboard...</div>;
@@ -198,31 +264,79 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-            <SalesTrendChart />
-            
-            {/* Top Sellers Widget */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">Top Sellers (Last 30 Days)</h3>
-              {topSellers.length === 0 ? (
-                <p className="text-sm text-gray-400">No sales data yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {topSellers.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center text-xs font-bold text-gray-500">{index + 1}</span>
-                        <span className="font-medium text-gray-800">{item.name}</span>
-                      </div>
-                      <span className="font-bold text-gray-900">{item.quantity} units</span>
+      {/* Sales Trend Chart */}
+      <SalesTrendChart />
+
+      {/* TOP & SLOW SELLERS SECTION */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+          {/* Top Sellers Widget */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">🚀 Top 5 Best Sellers</h3>
+            {topSellers.length === 0 ? (
+              <p className="text-sm text-gray-400">No sales data yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {topSellers.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between bg-green-50 p-2 rounded">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold">{index + 1}</span>
+                      <span className="font-medium text-gray-800">{item.name}</span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-        </div>
+                    <span className="font-bold text-green-700">{item.quantity} units</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Slow Sellers Widget */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">🐢 5 Slow Movers</h3>
+            {slowSellers.length === 0 ? (
+              <p className="text-sm text-gray-400">No data yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {slowSellers.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between bg-red-50 p-2 rounded">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 bg-red-200 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">!</span>
+                      <span className="font-medium text-gray-800">{item.name}</span>
+                    </div>
+                    <span className="font-bold text-red-600">{item.quantity} units</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
       </div>
+
+      {/* RECENT SALES */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Recent Transactions</h3>
+        {recentSales.length === 0 ? (
+          <p className="text-sm text-gray-400">No recent transactions.</p>
+        ) : (
+          <div className="space-y-3">
+            {recentSales.map((sale) => (
+              <div key={sale.id} className="flex justify-between items-center border-b border-gray-100 pb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    {formatCurrency(sale.total_amount)}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {new Date(sale.created_at).toLocaleTimeString()} 
+                    <span className="ml-1 capitalize">({sale.payment_method})</span>
+                  </p>
+                </div>
+                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Paid</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

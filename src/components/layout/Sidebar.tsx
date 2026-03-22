@@ -40,7 +40,6 @@ export function Sidebar() {
 
   // --- PERMISSIONS LOGIC ---
   // SAFETY HATCH: If you are the owner of this Org ID, you see EVERYTHING.
-  // This ensures you never lock yourself out even if the DB role is wrong.
   const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
   const isOwner = organizationId === MASTER_ORG_ID;
 

@@ -1,46 +1,41 @@
  // src/lib/services/licenseService.ts
 import { createClient } from "@/lib/supabase/client";
 
-// Default Org ID as a safety net
-const DEFAULT_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
 export const licenseService = {
-  async checkLicense(organizationId: string | null) {
+  /**
+   * Checks if the provided license key is valid for this specific organization.
+   */
+  async validateLicense(organizationId: string | null) {
     const supabase = createClient();
     
-    // Safety Net: Use default if ID is invalid
-    const safeId = organizationId || DEFAULT_ORG_ID;
+    // 1. Get the Key from Environment Variables (Set in Vercel)
+    const providedKey = process.env.NEXT_PUBLIC_LICENSE_KEY;
 
-    const { data, error } = await supabase
-      .from('settings')
-      .select('license_expires_at')
-      .eq('organization_id', safeId)
-      .single();
-
-    if (error) {
-      console.warn("License check failed, allowing access.", error);
-      return { isValid: true, expiresAt: null };
+    if (!providedKey) {
+      return { isValid: false, message: "License Key Missing" };
+    }
+    if (!organizationId) {
+      return { isValid: false, message: "Shop ID Missing" };
     }
 
-    const expiresAt = new Date(data.license_expires_at);
-    const now = new Date();
+    // 2. Check Database
+    const { data, error } = await supabase
+      .from('licenses')
+      .select('*')
+      .eq('license_key', providedKey)
+      .eq('organization_id', organizationId)
+      .eq('status', 'active')
+      .maybeSingle();
 
-    return {
-      isValid: now < expiresAt,
-      expiresAt: data.license_expires_at
-    };
-  },
+    if (error) {
+      console.error("License check DB error", error);
+      return { isValid: false, message: "Database Error" };
+    }
 
-  async extendLicense(organizationId: string | null, newDate: string) {
-    const supabase = createClient();
-    
-    const safeId = organizationId || DEFAULT_ORG_ID;
-    
-    const { error } = await supabase
-      .from('settings')
-      .update({ license_expires_at: newDate })
-      .eq('organization_id', safeId);
-    
-    if (error) throw error;
+    if (!data) {
+      return { isValid: false, message: "Invalid Key for this Shop" };
+    }
+
+    return { isValid: true, message: "Licensed" };
   }
 };

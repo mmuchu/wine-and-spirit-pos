@@ -3,42 +3,30 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { formatCurrency } from "@/components/pos/utils";
 import { useOrganization } from "@/lib/context/OrganizationContext";
-import { shiftService } from "@/lib/services/shiftService";
-import { auditService } from "@/lib/services/auditService"; 
+import { formatCurrency } from "@/components/pos/utils";
+import { useRole } from "@/lib/hooks/useRole";
 
 export default function ExpensesPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-  
+  const { isManager, isAdmin, isOwner } = useRole();
+
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
   const [formData, setFormData] = useState({
     description: '',
     amount: '',
     category: 'Utilities',
-    cost_type: 'variable',
+    cost_type: 'variable', // Default to variable
     date: new Date().toISOString().split('T')[0]
   });
-  const [submitting, setSubmitting] = useState(false);
-  const [currentShiftId, setCurrentShiftId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (organizationId) {
-      checkShift();
-      fetchExpenses();
-    }
+    if (organizationId) fetchExpenses();
   }, [organizationId]);
-
-  const checkShift = async () => {
-    if (!organizationId) return; // Safety check
-    // FIX: Pass organizationId to getCurrentShift
-    const shift = await shiftService.getCurrentShift(organizationId);
-    if (shift) setCurrentShiftId(shift.id);
-  };
 
   const fetchExpenses = async () => {
     if (!organizationId) return;
@@ -49,7 +37,7 @@ export default function ExpensesPage() {
         .select('*')
         .eq('organization_id', organizationId)
         .order('date', { ascending: false });
-      
+
       if (error) throw error;
       setExpenses(data || []);
     } catch (err) {
@@ -65,135 +53,172 @@ export default function ExpensesPage() {
     
     setSubmitting(true);
     try {
-      const expenseData = {
+      const { error } = await supabase.from('expenses').insert({
         organization_id: organizationId,
         description: formData.description,
         amount: parseFloat(formData.amount),
         category: formData.category,
         cost_type: formData.cost_type,
-        date: formData.date,
-        shift_id: currentShiftId
-      };
+        date: formData.date
+      });
 
-      await supabase.from('expenses').insert(expenseData);
+      if (error) throw error;
       
-      // AUDIT: Log the expense
-      await auditService.log(
-        'EXPENSE_ADDED',
-        `Recorded expense: ${formData.description} (${formatCurrency(parseFloat(formData.amount))})`,
-        { metadata: { amount: formData.amount, category: formData.category, type: formData.cost_type } }
-      );
-      
-      setIsModalOpen(false);
       setFormData({ description: '', amount: '', category: 'Utilities', cost_type: 'variable', date: new Date().toISOString().split('T')[0] });
       fetchExpenses();
-    } catch (err) {
-      alert("Failed to save expense.");
+    } catch (err: any) {
+      alert(err.message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const totalFixed = expenses.filter(e => e.cost_type === 'fixed').reduce((sum, e) => sum + Number(e.amount), 0);
-  const totalVariable = expenses.filter(e => e.cost_type === 'variable').reduce((sum, e) => sum + Number(e.amount), 0);
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this expense?")) return;
+    try {
+      await supabase.from('expenses').delete().eq('id', id);
+      fetchExpenses();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Permission check
+  const canManage = isManager || isAdmin || isOwner;
+
+  if (loading) return <div className="p-8">Loading...</div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
-          <p className="text-gray-500 text-sm mt-1">Track business costs.</p>
-        </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2 bg-black text-white rounded-lg text-sm font-bold hover:bg-gray-800"
-        >
-          + Add Expense
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <p className="text-sm text-gray-500">Total Fixed Costs</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(totalFixed)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <p className="text-sm text-gray-500">Total Variable Costs</p>
-          <p className="text-2xl font-bold text-orange-600 mt-1">{formatCurrency(totalVariable)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <p className="text-sm text-gray-500">Grand Total</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">{formatCurrency(totalFixed + totalVariable)}</p>
+          <p className="text-gray-500 text-sm mt-1">Track your business costs.</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left p-4 font-semibold">Date</th>
-              <th className="text-left p-4 font-semibold">Description</th>
-              <th className="text-left p-4 font-semibold">Type</th>
-              <th className="text-right p-4 font-semibold">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {loading ? (
-              <tr><td colSpan={4} className="p-8 text-center text-gray-400">Loading...</td></tr>
-            ) : expenses.length === 0 ? (
-              <tr><td colSpan={4} className="p-8 text-center text-gray-400">No expenses recorded.</td></tr>
-            ) : (
-              expenses.map((exp) => (
-                <tr key={exp.id}>
-                  <td className="p-4 text-gray-500">{exp.date}</td>
-                  <td className="p-4 font-medium">{exp.description}</td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${exp.cost_type === 'fixed' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
-                        {exp.cost_type ? exp.cost_type.charAt(0).toUpperCase() + exp.cost_type.slice(1) : 'Variable'}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right font-bold text-red-600">{formatCurrency(exp.amount)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-bold">Add Expense</h2>
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="w-full p-2 border rounded" required />
-              <input type="text" placeholder="Description" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full p-2 border rounded" required />
-              
-              <div className="grid grid-cols-2 gap-2">
-                <select value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})} className="w-full p-2 border rounded">
-                  <option>Utilities</option>
-                  <option>Rent</option>
-                  <option>Salaries</option>
-                  <option>Stock Purchase</option>
-                  <option>Misc</option>
-                </select>
-                
-                <select value={formData.cost_type} onChange={(e) => setFormData({...formData, cost_type: e.target.value})} className="w-full p-2 border rounded font-medium">
-                  <option value="variable">Variable Cost</option>
-                  <option value="fixed">Fixed Cost</option>
-                </select>
-              </div>
-
-              <input type="number" placeholder="Amount (Ksh)" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value})} className="w-full p-2 border rounded" required />
-              
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2 border rounded font-medium">Cancel</button>
-                <button type="submit" disabled={submitting} className="flex-1 py-2 bg-black text-white rounded font-bold">{submitting ? "Saving..." : "Save"}</button>
-              </div>
-            </form>
-          </div>
+      {/* Add Expense Form */}
+      {canManage && (
+        <div className="bg-white p-6 rounded-xl border shadow-sm">
+          <h2 className="text-lg font-bold mb-4">Record New Expense</h2>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium mb-1">Date</label>
+              <input 
+                type="date" 
+                required
+                value={formData.date}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <select 
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                className="w-full p-2 border rounded"
+              >
+                <option value="Utilities">Utilities</option>
+                <option value="Rent">Rent</option>
+                <option value="Salaries">Salaries</option>
+                <option value="Stock Purchase">Stock Purchase</option>
+                <option value="Misc">Misc</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Cost Type</label>
+              <select 
+                value={formData.cost_type}
+                onChange={(e) => setFormData({ ...formData, cost_type: e.target.value })}
+                className="w-full p-2 border rounded"
+              >
+                <option value="variable">Variable Cost</option>
+                <option value="fixed">Fixed Cost</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Amount (Ksh)</label>
+              <input 
+                type="number" 
+                required
+                placeholder="0"
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+            <div className="flex gap-2">
+                <div className="flex-1">
+                         <label className="block text-sm font-medium mb-1">Description</label>
+                         <input 
+                           type="text" 
+                           required
+                           placeholder="Description"
+                           value={formData.description}
+                           onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                           className="w-full p-2 border rounded"
+                         />
+                    </div>
+              <button 
+                type="submit" 
+                disabled={submitting}
+                className="px-6 py-2 bg-black text-white rounded font-bold hover:bg-gray-800 disabled:bg-gray-300 h-[42px] self-end"
+              >
+                Add
+              </button>
+            </div>
+          </form>
         </div>
       )}
+
+      {/* Expenses Table */}
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        {/* CONTAINER ENABLES VERTICAL SCROLL */}
+        <div className="table-container overflow-x-auto">
+          <table className="w-full text-sm sticky-header">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left p-3 font-semibold">Date</th>
+                <th className="text-left p-3 font-semibold">Category</th>
+                <th className="text-left p-3 font-semibold">Type</th>
+                <th className="text-left p-3 font-semibold">Description</th>
+                <th className="text-right p-3 font-semibold">Amount</th>
+                {canManage && <th className="text-right p-3 font-semibold">Actions</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {expenses.length === 0 ? (
+                <tr><td colSpan={6} className="p-8 text-center text-gray-400">No expenses recorded.</td></tr>
+              ) : (
+                expenses.map((exp) => (
+                  <tr key={exp.id} className="hover:bg-gray-50">
+                    <td className="p-3 whitespace-nowrap">{new Date(exp.date).toLocaleDateString()}</td>
+                    <td className="p-3">{exp.category}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${exp.cost_type === 'fixed' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
+                        {exp.cost_type}
+                      </span>
+                    </td>
+                    <td className="p-3 max-w-xs truncate">{exp.description}</td>
+                    <td className="p-3 text-right font-bold text-red-600">{formatCurrency(exp.amount)}</td>
+                    {canManage && (
+                      <td className="p-3 text-right">
+                        <button 
+                          onClick={() => handleDelete(exp.id)}
+                          className="text-xs text-red-500 hover:underline font-medium"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

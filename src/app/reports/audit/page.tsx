@@ -1,14 +1,15 @@
-// src/app/reports/audit/page.tsx
+ // src/app/reports/audit/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { auditService } from "@/lib/services/auditService";
-import { formatCurrency } from "@/components/pos/utils";
 import { useOrganization } from "@/lib/context/OrganizationContext";
+import { formatCurrency } from "@/components/pos/utils";
 
-export default function AuditTrailPage() {
+export default function DailyAuditPage() {
+  const supabase = createClient();
   const { organizationId } = useOrganization();
+  
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -21,7 +22,20 @@ export default function AuditTrailPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      const data = await auditService.getDailyReport(organizationId, date);
+      const start = new Date(date);
+      start.setHours(0,0,0,0);
+      const end = new Date(date);
+      end.setHours(23,59,59,999);
+
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
       setLogs(data || []);
     } catch (err) {
       console.error(err);
@@ -30,55 +44,54 @@ export default function AuditTrailPage() {
     }
   };
 
-  const getActionIcon = (action: string) => {
-    if (action.includes('SALE')) return '💰';
-    if (action.includes('STOCK')) return '📦';
-    if (action.includes('EXPENSE')) return '💸';
-    if (action.includes('SHIFT')) return '⏰';
-    return '📝';
-  };
+  if (loading) return <div className="p-8">Loading...</div>;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">Daily Activity Log</h1>
-          <p className="text-gray-500 text-sm mt-1">Audit trail of all business activities.</p>
+          <h1 className="text-2xl font-bold">Daily Audit Log</h1>
+          <p className="text-gray-500 text-sm mt-1">System activity for {date}.</p>
         </div>
         <input 
           type="date" 
           value={date} 
-          onChange={(e) => setDate(e.target.value)}
-          className="border p-2 rounded-lg"
+          onChange={(e) => setDate(e.target.value)} 
+          className="border p-2 rounded"
         />
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="divide-y">
-          {loading ? (
-            <div className="p-8 text-center text-gray-400">Loading activities...</div>
-          ) : logs.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">No activity recorded for this day.</div>
-          ) : (
-            logs.map((log) => (
-              <div key={log.id} className="p-4 flex items-start gap-4 hover:bg-gray-50">
-                <div className="text-2xl">{getActionIcon(log.action)}</div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center">
-                    <p className="font-bold text-gray-800">{log.description}</p>
-                    <span className="text-xs text-gray-400">
-                      {new Date(log.created_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1 flex gap-2">
-                    <span className="bg-gray-100 px-2 py-0.5 rounded font-mono">{log.action}</span>
-                    {log.metadata?.amount && <span>{formatCurrency(log.metadata.amount)}</span>}
-                    {log.metadata?.quantity && <span>Qty: {log.metadata.quantity}</span>}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
+        {/* Apply table-container and overflow-x-auto */}
+        <div className="table-container overflow-x-auto">
+          <table className="w-full text-sm sticky-header">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left p-3 font-semibold">Time</th>
+                <th className="text-left p-3 font-semibold">User</th>
+                <th className="text-left p-3 font-semibold">Action</th>
+                <th className="text-left p-3 font-semibold">Description</th>
+                <th className="text-left p-3 font-semibold">Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {logs.length === 0 ? (
+                <tr><td colSpan={5} className="p-8 text-center text-gray-400">No activity recorded.</td></tr>
+              ) : (
+                logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-gray-50">
+                    <td className="p-3 whitespace-nowrap">{new Date(log.created_at).toLocaleTimeString()}</td>
+                    <td className="p-3">{log.user_id ? log.user_id.slice(0, 8) : 'System'}</td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-gray-100">{log.action}</span>
+                    </td>
+                    <td className="p-3">{log.description}</td>
+                    <td className="p-3 text-gray-400 text-xs">{JSON.stringify(log.metadata || {}).slice(0, 30)}...</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
