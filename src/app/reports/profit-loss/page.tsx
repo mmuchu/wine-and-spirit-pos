@@ -46,7 +46,7 @@ export default function ProfitLossPage() {
         endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0, 23, 59, 59);
       }
 
-      // 1. Fetch Sales Data
+      // 1. Fetch Sales Data (Use total_amount only)
       const { data: sales, error: sError } = await supabase
         .from("sales")
         .select("total_amount, items")
@@ -81,8 +81,9 @@ export default function ProfitLossPage() {
 
       if (eError) throw eError;
 
-      const fixedCosts = expenses?.filter(e => e.cost_type === 'fixed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
-      const variableCosts = expenses?.filter(e => e.cost_type === 'variable').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
+      // FIX: Added type (e: any) to filter callbacks
+      const fixedCosts = expenses?.filter((e: any) => e.cost_type === 'fixed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
+      const variableCosts = expenses?.filter((e: any) => e.cost_type === 'variable').reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0;
       const totalExpenses = fixedCosts + variableCosts;
 
       setReport({
@@ -102,11 +103,7 @@ export default function ProfitLossPage() {
     }
   };
 
-  if (loading) return (
-    <div className="p-8 flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-    </div>
-  );
+  if (loading) return <div className="p-8">Generating Report...</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 lg:p-8 space-y-6">
