@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
-import { Product, CartItem } from "@/lib/types"; // IMPORT CartItem
+import { Product, CartItem } from "@/lib/types";
 import { auditService } from "@/lib/services/auditService";
 
 export default function POSPage() {
@@ -17,21 +17,20 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  
-  // FIX: Use CartItem[] for the cart state
   const [cart, setCart] = useState<CartItem[]>([]);
-  
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
 
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "mpesa">("cash");
-  const [cashReceived, setCashReceived] = useState("");
   
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [lastSale, setLastSale] = useState<any>(null);
-
-  // VAT State
+  
+  // Settings State
   const [vatEnabled, setVatEnabled] = useState(true);
+  const [shopName, setShopName] = useState("KENYAN SPIRIT");
+  const [shopAddress, setShopAddress] = useState("Nairobi, Kenya");
+  const [shopPhone, setShopPhone] = useState("");
 
   useEffect(() => {
     if (organizationId) {
@@ -76,8 +75,13 @@ export default function POSPage() {
   };
 
   const fetchSettings = async () => {
-    const { data } = await supabase.from('settings').select('vat_enabled').eq('organization_id', organizationId).single();
-    if (data) setVatEnabled(data.vat_enabled ?? true);
+    const { data } = await supabase.from('settings').select('*').eq('organization_id', organizationId).single();
+    if (data) {
+      setVatEnabled(data.vat_enabled ?? true);
+      setShopName(data.shop_name || "KENYAN SPIRIT");
+      setShopAddress(data.address || "Nairobi, Kenya");
+      setShopPhone(data.phone || "");
+    }
   };
 
   const addToCart = (product: Product) => {
@@ -90,7 +94,6 @@ export default function POSPage() {
             : item
         );
       }
-      // FIX: Cast to CartItem when adding new
       return [...prev, { ...product, quantity: 1 } as CartItem];
     });
     setSearchTerm("");
@@ -108,17 +111,17 @@ export default function POSPage() {
     }
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => {
+    const price = Number(item.price) || 0;
+    const qty = Number(item.quantity) || 0;
+    return sum + (price * qty);
+  }, 0);
+  
   const tax = vatEnabled ? subtotal * 0.16 : 0;
   const total = subtotal + tax;
 
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
-    if (paymentMethod === "cash" && parseFloat(cashReceived) < total) {
-      alert("Insufficient cash received.");
-      return;
-    }
-
     setProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -162,10 +165,17 @@ export default function POSPage() {
         { sale_id: sale.id }
       );
 
-      setLastSale({ ...sale, date: new Date().toISOString() });
+      // Pass settings to sale object for receipt
+      setLastSale({ 
+        ...sale, 
+        date: new Date().toISOString(),
+        shop_name: shopName,
+        address: shopAddress,
+        phone: shopPhone
+      });
+      
       setIsReceiptModalOpen(true);
       setCart([]);
-      setCashReceived("");
       fetchProducts();
 
     } catch (err: any) {
@@ -266,8 +276,7 @@ export default function POSPage() {
           </div>
         </div>
 
-        {/* Items List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-gray-50">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 bg-gray-50">
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-300 space-y-3">
                 <p className="font-medium">Cart is empty</p>
@@ -310,25 +319,25 @@ export default function POSPage() {
         {/* PAYMENT FOOTER */}
         <div className="border-t border-gray-200 bg-white p-6 space-y-4 shrink-0 mt-auto">
           
-          {/* Totals */}
-          <div className="space-y-1 text-sm">
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between text-gray-500">
               <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
+              <span className="font-medium">{formatCurrency(subtotal)}</span>
             </div>
+            
             {vatEnabled && (
               <div className="flex justify-between text-gray-500">
                 <span>VAT (16%)</span>
-                <span>{formatCurrency(tax)}</span>
+                <span className="font-medium">{formatCurrency(tax)}</span>
               </div>
             )}
-            <div className="flex justify-between text-xl font-extrabold border-t border-dashed pt-2 mt-1 text-gray-900">
-              <span>Total</span>
-              <span>{formatCurrency(total)}</span>
+
+            <div className="flex justify-between items-center border-t-2 border-dashed pt-3 mt-2">
+              <span className="text-xl font-extrabold text-gray-900">Total</span>
+              <span className="text-2xl font-extrabold text-gray-900">{formatCurrency(total)}</span>
             </div>
           </div>
 
-          {/* Payment Method */}
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setPaymentMethod("cash")}
@@ -352,26 +361,6 @@ export default function POSPage() {
             </button>
           </div>
 
-          {/* Cash Input */}
-          {paymentMethod === "cash" && (
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">Ksh</span>
-              <input
-                type="number"
-                placeholder="0"
-                value={cashReceived}
-                onChange={(e) => setCashReceived(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg text-right text-lg font-bold focus:ring-2 focus:ring-black"
-              />
-              {parseFloat(cashReceived) > total && (
-                <p className="text-right text-green-600 text-sm mt-1 font-medium">
-                  Change: {formatCurrency(parseFloat(cashReceived) - total)}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* COMPLETE SALE BUTTON - RED */}
           <button
             onClick={handleCompleteSale}
             disabled={processing || cart.length === 0}

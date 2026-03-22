@@ -21,7 +21,7 @@ export function ReceiptModal({ isOpen, onClose, saleData }: ReceiptModalProps) {
       const printWindow = window.open('', '', 'height=600,width=300');
       if (printWindow) {
         printWindow.document.write('<html><head><title>Receipt</title>');
-        printWindow.document.write('<style>body { font-family: monospace; font-size: 12px; padding: 10px; } .text-right { text-align: right; } .font-bold { font-weight: bold; } .mt-2 { margin-top: 8px; } .border-t { border-top: 1px dashed #000; padding-top: 8px; }</style>');
+        printWindow.document.write('<style>body { font-family: monospace; font-size: 12px; padding: 10px; } .text-right { text-align: right; } .font-bold { font-weight: bold; } .border-t { border-top: 1px dashed #000; padding-top: 8px; }</style>');
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent);
         printWindow.document.write('</body></html>');
@@ -35,22 +35,24 @@ export function ReceiptModal({ isOpen, onClose, saleData }: ReceiptModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl overflow-hidden">
+      
+      {/* Container: Fixed Height 85% of screen, Relative positioning for absolute children */}
+      <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl h-[85vh] relative overflow-hidden">
         
-        {/* Header */}
-        <div className="bg-gray-900 text-white p-4 flex justify-between items-center">
+        {/* Header - Absolute at Top */}
+        <div className="absolute top-0 left-0 right-0 bg-gray-900 text-white p-4 flex justify-between items-center z-20 rounded-t-xl">
           <h3 className="font-bold text-lg">Receipt</h3>
           <button onClick={onClose} className="text-gray-300 hover:text-white text-2xl">&times;</button>
         </div>
 
-        {/* Receipt Content */}
-        <div ref={printRef} className="p-6 text-sm space-y-4 bg-white text-gray-800">
+        {/* Content - Absolute Scrollable Area (Offset from top and bottom) */}
+        <div ref={printRef} className="absolute top-[60px] bottom-[80px] left-0 right-0 overflow-y-auto p-6 text-sm space-y-4 bg-white text-gray-800">
           
           {/* Shop Details */}
           <div className="text-center border-b pb-4">
-            <h2 className="font-extrabold text-xl">KENYAN SPIRIT</h2>
-            <p className="text-xs text-gray-500">Lounge & Bistro</p>
-            <p className="text-xs text-gray-500">Nairobi, Kenya</p>
+            <h2 className="font-extrabold text-xl">{saleData.shop_name || "KENYAN SPIRIT"}</h2>
+            <p className="text-xs text-gray-500">{saleData.address || "Nairobi, Kenya"}</p>
+            {saleData.phone && <p className="text-xs text-gray-500">{saleData.phone}</p>}
             <p className="text-xs text-gray-500 mt-1">{new Date(saleData.date).toLocaleString()}</p>
           </div>
 
@@ -99,20 +101,22 @@ export function ReceiptModal({ isOpen, onClose, saleData }: ReceiptModalProps) {
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="p-4 bg-gray-50 flex gap-2">
-          <button 
-            onClick={handlePrint}
-            className="flex-1 py-3 bg-black text-white rounded-lg font-bold text-sm"
-          >
-            Print Receipt
-          </button>
-          <button 
-            onClick={onClose}
-            className="px-4 py-3 border border-gray-300 rounded-lg font-medium text-sm text-gray-600 hover:bg-gray-100"
-          >
-            Close
-          </button>
+        {/* Actions - Absolute at Bottom */}
+        <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t z-20">
+            <div className="flex gap-2">
+              <button 
+                onClick={handlePrint}
+                className="flex-1 py-3 bg-black text-white rounded-lg font-bold text-sm"
+              >
+                Print Receipt
+              </button>
+              <button 
+                onClick={onClose}
+                className="px-4 py-3 border border-gray-300 rounded-lg font-medium text-sm text-gray-600 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
         </div>
       </div>
     </div>

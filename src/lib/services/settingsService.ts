@@ -9,14 +9,13 @@ export const settingsService = {
       .from('settings')
       .select('*')
       .eq('organization_id', organizationId)
-      .maybeSingle(); // Use maybeSingle to avoid errors if row doesn't exist yet
+      .maybeSingle();
 
     if (error) {
       console.error("Error fetching settings", error);
       return null;
     }
     
-    // Return default object if no settings exist yet
     if (!data) {
       return { 
         shop_name: '', address: '', phone: '', vat_number: '', 
@@ -30,7 +29,6 @@ export const settingsService = {
   async upsertSettings(organizationId: string, settings: any) {
     const supabase = createClient();
     
-    // Construct the payload explicitly
     const payload = {
       organization_id: organizationId,
       shop_name: settings.shop_name || '',
@@ -42,9 +40,29 @@ export const settingsService = {
       receipt_footer: settings.receipt_footer || ''
     };
 
-    const { error } = await supabase
+    // ROBUST LOGIC: Check if row exists first
+    // 1. Try to find existing row
+    const { data: existing } = await supabase
       .from('settings')
-      .upsert(payload, { onConflict: 'organization_id' });
+      .select('id')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+
+    let error;
+    if (existing) {
+      // 2. If exists, UPDATE it
+      const result = await supabase
+        .from('settings')
+        .update(payload)
+        .eq('id', existing.id);
+      error = result.error;
+    } else {
+      // 3. If not, INSERT it
+      const result = await supabase
+        .from('settings')
+        .insert(payload);
+      error = result.error;
+    }
 
     if (error) throw error;
   }
