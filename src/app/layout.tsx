@@ -1,4 +1,4 @@
- // src/app/page.tsx
+// src/app/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -9,14 +9,12 @@ import { LowStockAlert } from "@/components/inventory/LowStockAlert";
 import { SalesTrendChart } from "@/components/dashboard/SalesTrendChart";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
-import { usePathname } from "next/navigation";
 
 export const dynamic = 'force-dynamic';
 
 export default function DashboardPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-  const pathname = usePathname();
   
   const [stats, setStats] = useState({
     totalSales: 0,
@@ -42,12 +40,11 @@ export default function DashboardPage() {
       fetchRecentSales();
       fetchSellingStats();
     }
-  }, [organizationId, pathname]);
+  }, [organizationId]);
 
   const fetchDashboardData = async () => {
     if (!organizationId) return;
     setLoading(true);
-
     try {
       const currentShift = await shiftService.getCurrentShift(organizationId);
       
