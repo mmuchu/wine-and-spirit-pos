@@ -99,6 +99,18 @@ export default function POSPage() {
     }
   };
 
+  // Helper to focus input
+  const focusCartInput = (productId: string) => {
+    // Small timeout to allow DOM to update
+    setTimeout(() => {
+      const input = document.getElementById(`cart-input-${productId}`);
+      if (input) {
+        input.focus();
+        (input as HTMLInputElement).select();
+      }
+    }, 50);
+  };
+
   const addToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
@@ -111,9 +123,17 @@ export default function POSPage() {
       }
       return [...prev, { ...product, quantity: 1 } as CartItem];
     });
+    
     setSearchTerm("");
     setFilteredProducts([]);
-    searchInputRef.current?.focus();
+    
+    // Focus the input for this product
+    focusCartInput(product.id);
+  };
+
+  // Focus when clicking row in sidebar
+  const handleRowClick = (productId: string) => {
+    focusCartInput(productId);
   };
 
   const updateQuantity = (id: string, quantity: number) => {
@@ -329,27 +349,33 @@ export default function POSPage() {
             </div>
           ) : (
             cart.map((item) => (
-              <div key={item.id} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-center gap-3">
+              // FIX: Click row to focus input
+              <div 
+                key={item.id} 
+                onClick={() => handleRowClick(item.id)}
+                className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-center gap-3 cursor-pointer"
+              >
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-gray-800 truncate">{item.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(item.price)} each</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <button 
-                    onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                    onClick={(e) => { e.stopPropagation(); updateQuantity(item.id, item.quantity - 1); }} 
                     className="w-7 h-7 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs transition"
                   >
                     -
                   </button>
-                  {/* FIX: Input is now editable for large numbers */}
                   <input
+                    id={`cart-input-${item.id}`} // ID for focusing
                     type="number"
                     value={item.quantity}
                     onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
+                    onClick={(e) => e.stopPropagation()} // Prevent row click double trigger
                     className="w-10 text-center font-bold text-sm border rounded focus:ring-2 focus:ring-black"
                   />
                   <button 
-                    onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                    onClick={(e) => { e.stopPropagation(); updateQuantity(item.id, item.quantity + 1); }} 
                     className="w-7 h-7 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs transition"
                   >
                     +
