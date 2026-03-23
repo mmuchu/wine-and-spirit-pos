@@ -99,9 +99,7 @@ export default function POSPage() {
     }
   };
 
-  // Helper to focus input
   const focusCartInput = (productId: string) => {
-    // Small timeout to allow DOM to update
     setTimeout(() => {
       const input = document.getElementById(`cart-input-${productId}`);
       if (input) {
@@ -126,12 +124,9 @@ export default function POSPage() {
     
     setSearchTerm("");
     setFilteredProducts([]);
-    
-    // Focus the input for this product
     focusCartInput(product.id);
   };
 
-  // Focus when clicking row in sidebar
   const handleRowClick = (productId: string) => {
     focusCartInput(productId);
   };
@@ -164,10 +159,10 @@ export default function POSPage() {
       return;
     }
 
+    // Validation Loop (Fast, just checking local state)
     for (const item of cart) {
       const product = products.find((p) => p.id === item.id);
       if (!product) continue;
-      
       if (product.stock < item.quantity) {
         alert(`Insufficient stock for "${item.name}". \nAvailable: ${product.stock}, Requested: ${item.quantity}`);
         return;
@@ -178,6 +173,7 @@ export default function POSPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
+      // 1. Insert Sale (Single Request)
       const { data: sale, error: saleError } = await supabase
         .from("sales")
         .insert({
@@ -202,16 +198,22 @@ export default function POSPage() {
 
       if (saleError) throw saleError;
 
-      for (const item of cart) {
+      // 2. OPTIMIZED: Parallel Stock Updates
+      // Instead of waiting for each item one by one, we send all updates at once.
+      const stockUpdatePromises = cart.map((item) => {
         const product = products.find((p) => p.id === item.id);
         if (product) {
-          await supabase
+          return supabase
             .from("products")
             .update({ stock: product.stock - item.quantity })
             .eq("id", item.id);
         }
-      }
+        return Promise.resolve();
+      });
 
+      await Promise.all(stockUpdatePromises);
+
+      // 3. Audit Log
       auditService.log(
         "SALE_COMPLETED",
         `Sold ${cart.length} items for ${formatCurrency(total)}`,
@@ -230,7 +232,7 @@ export default function POSPage() {
       setIsReceiptModalOpen(true);
       setCart([]);
       setCashReceived("");
-      fetchProducts();
+      fetchProducts(); // Refresh product list for UI
 
     } catch (err: any) {
       console.error(err);
@@ -245,10 +247,8 @@ export default function POSPage() {
   if (!currentShift && !loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-100 space-y-4">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
         <h2 className="text-2xl font-bold text-gray-800">No Active Shift</h2>
         <p className="text-gray-500">You must start a shift to make sales.</p>
-        <p className="text-sm text-gray-400">Check the Sidebar to start one.</p>
       </div>
     );
   }
@@ -349,7 +349,6 @@ export default function POSPage() {
             </div>
           ) : (
             cart.map((item) => (
-              // FIX: Click row to focus input
               <div 
                 key={item.id} 
                 onClick={() => handleRowClick(item.id)}
@@ -367,11 +366,11 @@ export default function POSPage() {
                     -
                   </button>
                   <input
-                    id={`cart-input-${item.id}`} // ID for focusing
+                    id={`cart-input-${item.id}`}
                     type="number"
                     value={item.quantity}
                     onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
-                    onClick={(e) => e.stopPropagation()} // Prevent row click double trigger
+                    onClick={(e) => e.stopPropagation()}
                     className="w-10 text-center font-bold text-sm border rounded focus:ring-2 focus:ring-black"
                   />
                   <button 
