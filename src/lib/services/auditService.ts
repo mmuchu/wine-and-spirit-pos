@@ -2,7 +2,8 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const auditService = {
-  async log(action: string, details: string, organizationId?: string, meta: object = {}) {
+  // FIX: Allow null in type definition
+  async log(action: string, details: string, organizationId?: string | null, meta: object = {}) {
     const supabase = createClient();
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -10,7 +11,7 @@ export const auditService = {
 
       await supabase.from('audit_logs').insert({
         user_id: user.id,
-        organization_id: organizationId,
+        organization_id: organizationId, 
         action,
         details,
         meta
@@ -25,7 +26,7 @@ export const auditService = {
     const activities: any[] = [];
 
     try {
-      // 1. Fetch Sales (Simplified - removed 'profiles' join which might fail)
+      // 1. Fetch Sales
       const { data: sales, error: salesError } = await supabase
         .from('sales')
         .select('id, created_at, total_amount, payment_method')
@@ -42,7 +43,7 @@ export const auditService = {
         date: s.created_at,
         title: `Sale: ${s.payment_method.toUpperCase()}`,
         description: `Total: Ksh ${s.total_amount}`,
-        user: 'Staff', // Simplified
+        user: 'Staff',
         id: s.id
       }));
 
