@@ -47,6 +47,9 @@ export default function POSPage() {
 
   // Fetch Active Shift
   const fetchActiveShift = async () => {
+    // FIX: Safety check for organizationId
+    if (!organizationId) return;
+
     try {
       const shift = await shiftService.getCurrentShift(organizationId);
       setCurrentShift(shift);
@@ -91,6 +94,7 @@ export default function POSPage() {
   };
 
   const fetchSettings = async () => {
+    if (!organizationId) return;
     const { data } = await supabase.from('settings').select('*').eq('organization_id', organizationId).single();
     if (data) {
       setVatEnabled(data.vat_enabled ?? true);
