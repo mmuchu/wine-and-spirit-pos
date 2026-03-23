@@ -2,22 +2,25 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const auditService = {
-  // FIX: Allow null in type definition
   async log(action: string, details: string, organizationId?: string | null, meta: object = {}) {
     const supabase = createClient();
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      await supabase.from('audit_logs').insert({
+      const { error } = await supabase.from('audit_logs').insert({
         user_id: user.id,
         organization_id: organizationId, 
         action,
         details,
         meta
       });
+      
+      if (error) {
+        console.error("Audit Log DB Error:", error.message);
+      }
     } catch (e) {
-      console.error("Audit log failed", e);
+      console.error("Audit Log System Error:", e);
     }
   },
 
@@ -26,7 +29,7 @@ export const auditService = {
     const activities: any[] = [];
 
     try {
-      // 1. Fetch Sales
+      // Fetch Sales
       const { data: sales, error: salesError } = await supabase
         .from('sales')
         .select('id, created_at, total_amount, payment_method')
@@ -47,7 +50,7 @@ export const auditService = {
         id: s.id
       }));
 
-      // 2. Fetch Stock Movements
+      // Fetch Stock Movements
       const { data: movements, error: movError } = await supabase
         .from('stock_movements')
         .select('*, products(name)')
@@ -71,7 +74,7 @@ export const auditService = {
         });
       });
 
-      // 3. Fetch Shifts
+      // Fetch Shifts
       const { data: shifts, error: shiftError } = await supabase
         .from('shifts')
         .select('*')
@@ -106,7 +109,7 @@ export const auditService = {
         }
       });
 
-      // 4. Fetch Audit Logs
+      // Fetch Audit Logs
       const { data: logs, error: logsError } = await supabase
         .from('audit_logs')
         .select('*')
