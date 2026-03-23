@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link"; // FIX: Added Link import
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Product } from "@/lib/types";
 import { ProductFormModal } from "@/components/inventory/ProductFormModal";
@@ -70,6 +70,9 @@ export default function InventoryPage() {
   };
 
   const fetchMovements = async () => {
+    // !!! CRITICAL FIX: Guard clause for TypeScript !!!
+    if (!organizationId) return;
+
     try {
       const data = await stockService.getRecentMovements(organizationId);
       setRecentMovements(data || []);
