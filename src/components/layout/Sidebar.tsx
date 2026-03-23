@@ -38,13 +38,12 @@ export function Sidebar() {
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open');
 
-  // --- PERMISSIONS LOGIC ---
-  // SAFETY HATCH: If you are the owner of this Org ID, you see EVERYTHING.
+  // Master Override
   const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
   const isOwner = organizationId === MASTER_ORG_ID;
 
   const visibleNavigation = navigation.filter(item => {
-    if (isOwner) return true; // Owner sees all
+    if (isOwner) return true;
     if (item.adminOnly && !isAdmin) return false;
     if (item.managerOnly && !isManager) return false;
     return true;
@@ -92,11 +91,15 @@ export function Sidebar() {
     
     if (shiftMode === 'open') {
       try {
-        const newShift = await shiftService.openShift(amount);
-        setCurrentShift(newShift);
-      } catch (error) {
+        // FIX 1: Pass organizationId
+        await shiftService.openShift(organizationId, amount);
+        
+        // FIX 2: Hard refresh to update POS state immediately
+        window.location.reload(); 
+        
+      } catch (error: any) {
         console.error("Shift error:", error);
-        alert("Failed to start shift.");
+        alert(`Failed to start shift: ${error.message}`);
       }
     } else {
       const params = new URLSearchParams({

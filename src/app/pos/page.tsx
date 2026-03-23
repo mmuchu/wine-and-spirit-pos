@@ -8,6 +8,7 @@ import { formatCurrency } from "@/components/pos/utils";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { Product, CartItem } from "@/lib/types";
 import { auditService } from "@/lib/services/auditService";
+import { shiftService } from "@/lib/services/shiftService";
 
 export default function POSPage() {
   const supabase = createClient();
@@ -22,13 +23,15 @@ export default function POSPage() {
   const [processing, setProcessing] = useState(false);
 
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "mpesa">("cash");
-  
-  // NEW: State for Cash Received
   const [cashReceived, setCashReceived] = useState("");
   
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [lastSale, setLastSale] = useState<any>(null);
   
+  // Shift State
+  const [currentShift, setCurrentShift] = useState<any>(null);
+
+  // Settings State
   const [vatEnabled, setVatEnabled] = useState(true);
   const [shopName, setShopName] = useState("KENYAN SPIRIT");
   const [shopAddress, setShopAddress] = useState("Nairobi, Kenya");
@@ -38,8 +41,19 @@ export default function POSPage() {
     if (organizationId) {
       fetchProducts();
       fetchSettings();
+      fetchActiveShift();
     }
   }, [organizationId]);
+
+  // Fetch Active Shift
+  const fetchActiveShift = async () => {
+    try {
+      const shift = await shiftService.getCurrentShift(organizationId);
+      setCurrentShift(shift);
+    } catch (err) {
+      console.error("Error checking shift", err);
+    }
+  };
 
   useEffect(() => {
     if (searchTerm.trim() === "") {
@@ -121,12 +135,28 @@ export default function POSPage() {
   
   const tax = vatEnabled ? subtotal * 0.16 : 0;
   const total = subtotal + tax;
-
-  // Calculate Change
   const change = parseFloat(cashReceived) - total;
 
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
+
+    // 1. ENFORCE SHIFT
+    if (!currentShift) {
+      alert("No Active Shift. Please start a shift first.");
+      return;
+    }
+
+    // 2. VALIDATE STOCK (Prevent Negative)
+    for (const item of cart) {
+      const product = products.find((p) => p.id === item.id);
+      if (!product) continue;
+      
+      if (product.stock < item.quantity) {
+        alert(`Insufficient stock for "${item.name}". \nAvailable: ${product.stock}, Requested: ${item.quantity}`);
+        return; // Stop the sale
+      }
+    }
+
     setProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -141,6 +171,7 @@ export default function POSPage() {
           tax_amount: tax,
           payment_method: paymentMethod,
           status: paymentMethod === "mpesa" ? "pending" : "completed",
+          shift_id: currentShift.id, // LINK SHIFT
           items: cart.map((item) => ({
             id: item.id,
             name: item.name,
@@ -154,6 +185,7 @@ export default function POSPage() {
 
       if (saleError) throw saleError;
 
+      // Update Stock
       for (const item of cart) {
         const product = products.find((p) => p.id === item.id);
         if (product) {
@@ -167,7 +199,7 @@ export default function POSPage() {
       auditService.log(
         "SALE_COMPLETED",
         `Sold ${cart.length} items for ${formatCurrency(total)}`,
-        { sale_id: sale.id }
+        { sale_id: sale.id, shift_id: currentShift.id }
       );
 
       setLastSale({ 
@@ -180,8 +212,8 @@ export default function POSPage() {
       
       setIsReceiptModalOpen(true);
       setCart([]);
-      setCashReceived(""); // Reset cash input
-      fetchProducts();
+      setCashReceived("");
+      fetchProducts(); // Refresh products to show new stock levels
 
     } catch (err: any) {
       console.error(err);
@@ -191,7 +223,20 @@ export default function POSPage() {
     }
   };
 
+  // Loading State
   if (loading) return <div className="h-screen flex items-center justify-center bg-gray-100 text-gray-500">Loading POS...</div>;
+
+  // No Shift State
+  if (!currentShift && !loading) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-gray-100 space-y-4">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <h2 className="text-2xl font-bold text-gray-800">No Active Shift</h2>
+        <p className="text-gray-500">You must start a shift to make sales.</p>
+        <p className="text-sm text-gray-400">Check the Sidebar to start one.</p>
+      </div>
+    );
+  }
 
   const renderProductGrid = (items: Product[]) => (
     <div className="grid grid-cols-2 gap-4 p-6">
@@ -235,8 +280,12 @@ export default function POSPage() {
       {/* LEFT: Product Selection */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         
-        <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
+        <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Sales Terminal</h1>
+          {/* Shift Indicator */}
+          <span className="px-2 py-1 text-[10px] bg-green-100 text-green-700 rounded font-bold uppercase">
+            Shift Active
+          </span>
         </div>
 
         <div className="p-4 bg-gray-50 border-b">
@@ -366,7 +415,7 @@ export default function POSPage() {
             </button>
           </div>
 
-          {/* NEW: Cash Input Field */}
+          {/* Cash Input */}
           {paymentMethod === "cash" && (
             <div className="space-y-2 pt-2">
               <div className="relative">

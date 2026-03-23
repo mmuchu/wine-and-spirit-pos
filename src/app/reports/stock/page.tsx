@@ -18,13 +18,14 @@ function StockReportContent() {
   const searchParams = useSearchParams();
   
   const [reportData, setReportData] = useState<any[]>([]);
+  const [actualInputs, setActualInputs] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [isClosingShift, setIsClosingShift] = useState(false);
   const [closingCash, setClosingCash] = useState<number>(0);
   const [currentShift, setCurrentShift] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const action = searchParams.get('action');
@@ -38,51 +39,62 @@ function StockReportContent() {
   useEffect(() => {
     if (organizationId) {
         checkActiveShift();
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (organizationId && currentShift) {
         generateReport();
     }
-  }, [organizationId, date]);
+  }, [organizationId, currentShift]);
 
   const checkActiveShift = async () => {
     try {
       const shift = await shiftService.getCurrentShift(organizationId);
       setCurrentShift(shift);
-    } catch (err) { console.error("Shift error", err); }
+      if(!shift) setLoading(false);
+    } catch (err) { 
+        console.error("Shift error", err); 
+        setLoading(false);
+    }
   };
 
   const generateReport = async () => {
-    if (!organizationId) return;
+    if (!organizationId || !currentShift) return;
     setLoading(true);
     setError(null);
     
     try {
+      // 1. Get all products (Current System Stock)
       const { data: products, error: pError } = await supabase
         .from("products")
-        .select("id, name, stock") 
+        .select("id, name, stock");
       
       if (pError) throw new Error(`Products Error: ${pError.message}`);
-      if (!products) throw new Error("No products found.");
 
-      const start = new Date(date);
-      start.setHours(0,0,0,0);
-      const end = new Date(date);
-      end.setHours(23,59,59,999);
+      // 2. Get Shift Snapshot (Opening Stock)
+      const openingStockMap = currentShift.opening_stock || {};
 
+      // 3. Get Sales for THIS SHIFT
       const { data: sales } = await supabase
         .from("sales")
         .select("items")
         .eq("organization_id", organizationId)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
+        .eq("shift_id", currentShift.id); 
 
+      // 4. Get Purchases for THIS SHIFT
       const { data: purchases } = await supabase
         .from("stock_movements")
         .select("product_id, quantity")
         .eq("organization_id", organizationId)
-        .eq("type", "purchase")
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
+        .eq("shift_id", currentShift.id)
+        .eq("type", "purchase");
 
       const report = products.map((p: any) => {
+        // A. Opening Stock (From Snapshot)
+        const opening = openingStockMap[p.id] || 0;
+
+        // B. Sales (From Shift Sales)
         let soldQty = 0;
         sales?.forEach((sale: any) => {
           sale.items?.forEach((item: any) => {
@@ -90,17 +102,36 @@ function StockReportContent() {
           });
         });
 
-        const purchasedQty = purchases
+        // C. Recorded Purchases
+        let recordedPurchases = purchases
           ?.filter((pur: any) => pur.product_id === p.id)
           .reduce((sum: number, pur: any) => sum + pur.quantity, 0) || 0;
 
-        const closingStock = p.stock || 0;
-        const openingStock = closingStock - purchasedQty + soldQty;
-        const expectedStock = openingStock + purchasedQty - soldQty;
+        // D. Current System Stock
+        const closingStock = Math.max(0, p.stock || 0); // Prevent negative display
+
+        // E. INTEGRITY LOGIC (No Duplicates)
+        // Calculate what purchases SHOULD be based on stock levels
+        // Formula: Closing = Opening + Purchased - Sold
+        // Therefore: Purchased = Closing - Opening + Sold
+        const impliedPurchases = closingStock - opening + soldQty;
+
+        // Decision: Use the MAXIMUM of Recorded vs Implied.
+        // - If Recorded=10, Implied=10 -> Use 10.
+        // - If Recorded=0, Implied=10 (New Product missing log) -> Use 10.
+        // - If Recorded=10, Implied=0 (Stock vanished?) -> Use 10 (Trust log).
+        // - If Recorded=5, Implied=10 (Partial log) -> Use 10 (System Integrity).
+        // This prevents adding them together (Duplicates).
+        let purchasedQty = Math.max(recordedPurchases, impliedPurchases);
+        
+        // Ensure never negative
+        purchasedQty = Math.max(0, purchasedQty);
+
+        const expectedStock = opening + purchasedQty - soldQty;
 
         return {
           id: p.id, name: p.name,
-          opening: openingStock,
+          opening: opening,
           purchased: purchasedQty,
           sold: soldQty,
           expected: expectedStock,
@@ -110,6 +141,9 @@ function StockReportContent() {
       });
 
       setReportData(report);
+      const initialInputs: Record<string, number> = {};
+      report.forEach((r: any) => { initialInputs[r.id] = r.expected; });
+      setActualInputs(initialInputs);
 
     } catch (err: any) {
       console.error("Report Error:", err);
@@ -119,88 +153,152 @@ function StockReportContent() {
     }
   };
 
+  const handleInputChange = (productId: string, value: string) => {
+    const num = parseInt(value) || 0;
+    setActualInputs(prev => ({ ...prev, [productId]: num }));
+  };
+
+  const getVariance = (productId: string) => {
+    const actual = actualInputs[productId];
+    const item = reportData.find(r => r.id === productId);
+    if (!item || actual === undefined) return 0;
+    return actual - item.expected; 
+  };
+
+  const handleSaveAdjustments = async () => {
+    if (!organizationId) return;
+    setSaving(true);
+    try {
+        for (const item of reportData) {
+            const actualCount = actualInputs[item.id];
+            const variance = actualCount - item.expected;
+            if (variance !== 0) {
+                // 1. Update Product Stock
+                await supabase.from('products').update({ stock: actualCount }).eq('id', item.id);
+                
+                // 2. Log Adjustment
+                await supabase.from('stock_movements').insert({
+                    organization_id: organizationId,
+                    product_id: item.id,
+                    quantity: variance, type: 'adjustment',
+                    shift_id: currentShift.id,
+                    notes: `Shift Adjustment`
+                });
+            }
+        }
+        alert("Adjustments Saved!");
+        generateReport(); // Refresh
+    } catch (err: any) { alert("Error: " + err.message); } 
+    finally { setSaving(false); }
+  };
+
   const handleCloseShift = async () => {
       if(!currentShift) return;
+      setSaving(true);
       try {
-          await shiftService.closeShift(currentShift.id, closingCash, {}, "Closed via Report Page");
+          await shiftService.closeShift(currentShift.id, closingCash, {}, "Closed via Report");
           alert("Shift Closed Successfully!");
           router.push('/shift-history');
       } catch (e: any) {
           alert("Error closing shift: " + e.message);
+      } finally {
+          setSaving(false);
       }
   };
 
   const handleExport = () => {
     const data = reportData.map(r => ({
       Product: r.name, Opening: r.opening, Purchases: r.purchased, Sales: r.sold,
-      Expected: r.expected, System: r.systemStock, Variance: r.variance
+      Expected: r.expected, Actual: actualInputs[r.id] ?? r.expected, Variance: getVariance(r.id)
     }));
-    exportToCSV(data, `Stock_Return_${date}`);
+    exportToCSV(data, `Shift_Report_${currentShift?.id}`);
   };
 
-  if (loading) return <div className="p-8 text-center">Loading Report...</div>;
+  if (loading) return <div className="p-8 text-center">Loading Shift Report...</div>;
+  
+  if (!currentShift && !loading) return (
+    <div className="p-8 text-center space-y-4">
+        <h2 className="text-xl font-bold">No Active Shift</h2>
+        <p className="text-gray-500">Please start a shift to see the report.</p>
+        <button onClick={() => router.push('/pos')} className="px-6 py-2 bg-black text-white rounded">Go to POS</button>
+    </div>
+  );
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
       <div className="flex justify-between items-center no-print">
         <div>
-          <h1 className="text-2xl font-bold">{isClosingShift ? "Close Shift Verification" : "Daily Stock Return"}</h1>
+          <h1 className="text-2xl font-bold">{isClosingShift ? "Close Shift Verification" : "Shift Stock Return"}</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {isClosingShift ? `Verify counts. Cash: ${formatCurrency(closingCash)}` : "Read-only report. Adjust stock in Inventory."}
+             Shift started: {new Date(currentShift.opened_at).toLocaleString()}
           </p>
         </div>
         <div className="flex gap-2 items-center">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border p-2 rounded text-sm" />
           <button onClick={handleExport} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-bold">Export</button>
         </div>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">{error}</div>}
-
-      <div className="bg-white rounded-xl border shadow overflow-hidden">
-        {/* CONTAINER ENABLES VERTICAL SCROLL */}
-        <div className="table-container overflow-x-auto">
-            <table className="w-full text-sm min-w-[900px] sticky-header">
-              <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-3 font-semibold">Product</th>
-                    <th className="text-center p-3 font-semibold">Opening</th>
-                    <th className="text-center p-3 font-semibold text-blue-600 font-bold">Purchases</th>
-                    <th className="text-center p-3 font-semibold text-red-600">Sales</th>
-                    <th className="text-center p-3 font-semibold">Expected</th>
-                    <th className="text-center p-3 font-semibold">System</th>
-                    <th className="text-center p-3 font-semibold text-orange-600">Variance</th>
-                  </tr>
-              </thead>
-              <tbody className="divide-y">
-                {reportData.map((r, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="p-3 font-medium">{r.name}</td>
-                    <td className="p-3 text-center">{r.opening}</td>
-                    <td className="p-3 text-center text-blue-600 font-bold">{r.purchased}</td>
-                    <td className="p-3 text-center text-red-600">{r.sold}</td>
-                    <td className="p-3 text-center font-bold">{r.expected}</td>
-                    <td className="p-3 text-center">{r.systemStock}</td>
-                    <td className={`p-3 text-center font-bold ${r.variance === 0 ? 'text-gray-400' : 'text-red-600 bg-red-50'}`}>
-                      {r.variance > 0 ? `+${r.variance}` : r.variance}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="bg-white rounded-xl border shadow overflow-x-auto printable-area">
+        <div className="overflow-x-auto scrollbar-top">
+            <div className="scrollbar-top-content min-w-[900px]">
+              <table className="w-full text-sm sticky-header">
+                <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="text-left p-3 font-semibold">Product</th>
+                      <th className="text-center p-3 font-semibold">Opening</th>
+                      <th className="text-center p-3 font-semibold text-blue-600 font-bold">Purchases</th>
+                      <th className="text-center p-3 font-semibold text-red-600">Sales</th>
+                      <th className="text-center p-3 font-semibold">Expected</th>
+                      <th className="text-center p-3 font-semibold bg-yellow-50">Actual Count</th>
+                      <th className="text-center p-3 font-semibold text-orange-600">Variance</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {reportData.map((r, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="p-3 font-medium">{r.name}</td>
+                      <td className="p-3 text-center">{r.opening}</td>
+                      <td className="p-3 text-center text-blue-600 font-bold">{r.purchased}</td>
+                      <td className="p-3 text-center text-red-600">{r.sold}</td>
+                      <td className="p-3 text-center font-bold">{r.expected}</td>
+                      <td className="p-2 text-center bg-yellow-50">
+                        <input
+                          type="number"
+                          value={actualInputs[r.id] || 0}
+                          onChange={(e) => handleInputChange(r.id, e.target.value)}
+                          className="w-20 p-1 border rounded text-center text-sm font-bold"
+                        />
+                      </td>
+                      <td className={`p-3 text-center font-bold ${getVariance(r.id) === 0 ? 'text-gray-400' : 'text-red-600 bg-red-50'}`}>
+                        {getVariance(r.id) > 0 ? `+${getVariance(r.id)}` : getVariance(r.id)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
         </div>
       </div>
 
-      {isClosingShift && (
-        <div className="flex justify-end gap-4 pt-4 border-t no-print">
+      <div className="flex justify-end gap-4 pt-4 border-t no-print">
             <button 
-              onClick={handleCloseShift}
-              className="px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800"
+              onClick={handleSaveAdjustments}
+              disabled={saving}
+              className="px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 disabled:bg-gray-300"
             >
-              Confirm & Close Shift
+              {saving ? "Saving..." : "Save Adjustments"}
             </button>
-        </div>
-      )}
+
+            {isClosingShift && (
+              <button 
+                onClick={handleCloseShift}
+                disabled={saving}
+                className="px-8 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:bg-red-300"
+              >
+                Confirm & Close Shift
+              </button>
+            )}
+      </div>
     </div>
   );
 }
