@@ -70,9 +70,7 @@ export default function InventoryPage() {
   };
 
   const fetchMovements = async () => {
-    // !!! CRITICAL FIX: Guard clause for TypeScript !!!
     if (!organizationId) return;
-
     try {
       const data = await stockService.getRecentMovements(organizationId);
       setRecentMovements(data || []);
@@ -84,6 +82,12 @@ export default function InventoryPage() {
   const handleOpenAdjustment = (product: Product) => {
     setSelectedProduct(product);
     setIsAdjustmentModalOpen(true);
+  };
+  
+  const handleCloseAdjustment = () => {
+    setIsAdjustmentModalOpen(false);
+    // Optional: Clear selection after close
+    // setSelectedProduct(null); 
   };
 
   const handleSuccess = () => {
@@ -141,8 +145,18 @@ export default function InventoryPage() {
               ) : (
                 filteredProducts.map((product) => {
                   const isLow = product.stock < (product.min_stock || 10);
+                  // FIX: Highlight if selected
+                  const isSelected = selectedProduct?.id === product.id;
+                  
                   return (
-                    <tr key={product.id} className="hover:bg-gray-50">
+                    <tr 
+                      key={product.id} 
+                      className={`transition-colors duration-150 ${
+                        isSelected 
+                          ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' 
+                          : 'hover:bg-gray-50'
+                      }`}
+                    >
                       <td className="p-3">
                         <p className="font-medium">{product.name}</p>
                         <p className="text-xs text-gray-400">{product.sku || '-'}</p>
@@ -224,7 +238,7 @@ export default function InventoryPage() {
       {selectedProduct && (
         <StockAdjustmentModal
           isOpen={isAdjustmentModalOpen}
-          onClose={() => setIsAdjustmentModalOpen(false)}
+          onClose={handleCloseAdjustment}
           onSuccess={handleSuccess}
           product={selectedProduct}
         />

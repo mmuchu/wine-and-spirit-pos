@@ -10,13 +10,14 @@ export const stockService = {
     shiftId?: string;
     supplierId?: string;
     invoiceNo?: string;
-    unitCost?: number; // Important for Moving Average Cost
+    unitCost?: number;
     notes?: string;
   }) {
     const supabase = createClient();
     
     const totalCost = (details.unitCost || 0) * details.quantity;
 
+    // 1. Insert Movement Record
     const { data, error } = await supabase
       .from('stock_movements')
       .insert({
@@ -35,21 +36,29 @@ export const stockService = {
 
     if (error) throw error;
 
-    // OPTIONAL: Update Product Cost Price (Moving Average)
-    // If you want the cost price to update automatically:
-    if (details.unitCost && details.unitCost > 0) {
-        await supabase.rpc('update_product_cost', {
-            p_id: details.productId,
-            new_qty: details.quantity,
-            new_cost: details.unitCost
-        });
-        // Note: You would need to create the 'update_product_cost' RPC function in SQL for this.
-        // For now, we will just update it directly for simplicity.
-        await supabase
-            .from('products')
-            .update({ cost_price: details.unitCost })
-            .eq('id', details.productId);
-    }
+    // 2. CRITICAL: Update the Product Stock Count
+    // We need to fetch current stock first to ensure accuracy
+    const { data: product, error: fetchError } = await supabase
+      .from('products')
+      .select('stock, cost_price')
+      .eq('id', details.productId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    const currentStock = product?.stock || 0;
+    const newStock = currentStock + details.quantity;
+
+    // 3. Update Product
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ 
+        stock: newStock,
+        cost_price: details.unitCost || product?.cost_price // Update cost if provided
+      })
+      .eq('id', details.productId);
+
+    if (updateError) throw updateError;
 
     return data;
   },
@@ -60,11 +69,12 @@ export const stockService = {
     quantity: number; // Can be negative
     organizationId: string;
     shiftId?: string;
-    reason: string; // 'damage', 'theft', 'stock_take'
+    reason: string;
     notes?: string;
   }) {
     const supabase = createClient();
 
+    // 1. Insert Movement
     const { data, error } = await supabase
       .from('stock_movements')
       .insert({
@@ -78,6 +88,26 @@ export const stockService = {
       .select();
 
     if (error) throw error;
+
+    // 2. Update Product Stock
+    const { data: product, error: fetchError } = await supabase
+      .from('products')
+      .select('stock')
+      .eq('id', details.productId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    const currentStock = product?.stock || 0;
+    const newStock = currentStock + details.quantity; // quantity can be negative
+
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ stock: newStock })
+      .eq('id', details.productId);
+
+    if (updateError) throw updateError;
+
     return data;
   },
 

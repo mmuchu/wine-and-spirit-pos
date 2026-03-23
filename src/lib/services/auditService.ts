@@ -1,62 +1,142 @@
  // src/lib/services/auditService.ts
 import { createClient } from "@/lib/supabase/client";
-import { User } from "@supabase/supabase-js"; 
 
 export const auditService = {
-  /**
-   * Logs an action to the audit trail.
-   * NON-BLOCKING (Fire and Forget):
-   * We do NOT return a promise. This ensures the UI stays fast.
-   */
-  log(action: string, description: string, details: any = {}) {
+  // LOG an action
+  async log(action: string, details: string, meta: object = {}) {
     const supabase = createClient();
-    
-    // Get user info asynchronously
-    supabase.auth.getUser().then((response: { data: { user: User | null } }) => {
-      const user = response.data.user;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // We need organizationId. 
+      // Since we don't have it here directly, we can skip it or pass it. 
+      // For global logs (like login), we might not have org context yet.
+      // But for org actions, we should pass it.
+      // Let's simplify: We will insert without org_id for login, or require org_id for others.
+      // Better: The calling component should pass context.
       
-      // Perform the insert in the background
-      supabase.from('audit_logs').insert({
-        organization_id: details.organization_id || user?.user_metadata?.organization_id,
-        user_id: user?.id,
-        action: action,
-        entity_type: details.entity_type || null,
-        entity_id: details.entity_id || null,
-        description: description,
-        metadata: details.metadata || {}
-      // FIX: Explicitly type 'result' as any to satisfy TypeScript
-      }).then((result: any) => {
-        if (result.error) {
-          console.error("Audit Log Failed:", result.error.message);
+      // Simple generic log:
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        action,
+        details,
+        meta
+      });
+    } catch (e) {
+      console.error("Audit log failed", e);
+    }
+  },
+
+  // GET all activities
+  async getActivities(organizationId: string, limit: number = 50) {
+    const supabase = createClient();
+    const activities: any[] = [];
+
+    try {
+      // 1. Fetch Sales
+      const { data: sales } = await supabase
+        .from('sales')
+        .select('id, created_at, total_amount, payment_method, profiles(full_name)')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      sales?.forEach(s => activities.push({
+        type: 'SALE',
+        icon: '💰',
+        color: 'green',
+        date: s.created_at,
+        title: `Sale: ${s.payment_method.toUpperCase()}`,
+        description: `Total: Ksh ${s.total_amount}`,
+        user: s.profiles?.full_name || 'User',
+        id: s.id
+      }));
+
+      // 2. Fetch Stock Movements (Purchases/Adjustments)
+      const { data: movements } = await supabase
+        .from('stock_movements')
+        .select('*, products(name), profiles(full_name)')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      movements?.forEach(m => {
+        const isPurchase = m.type === 'purchase';
+        activities.push({
+          type: 'STOCK',
+          icon: isPurchase ? '📦' : '⚙️',
+          color: isPurchase ? 'blue' : 'orange',
+          date: m.created_at,
+          title: `${m.type.toUpperCase()}: ${m.products?.name || 'Product'}`,
+          description: `Qty: ${m.quantity > 0 ? '+' : ''}${m.quantity}. ${m.notes || ''}`,
+          user: m.profiles?.full_name || 'System',
+          id: m.id
+        });
+      });
+
+      // 3. Fetch Shifts
+      const { data: shifts } = await supabase
+        .from('shifts')
+        .select('*, profiles(full_name)')
+        .eq('organization_id', organizationId)
+        .order('opened_at', { ascending: false })
+        .limit(limit);
+
+      shifts?.forEach(s => {
+        activities.push({
+          type: 'SHIFT',
+          icon: '⏰',
+          color: 'purple',
+          date: s.opened_at,
+          title: `Shift Opened`,
+          description: `Opening Cash: Ksh ${s.opening_cash}`,
+          user: s.profiles?.full_name || 'User',
+          id: s.id
+        });
+        if (s.closed_at) {
+          activities.push({
+            type: 'SHIFT',
+            icon: '🏁',
+            color: 'gray',
+            date: s.closed_at,
+            title: `Shift Closed`,
+            description: `Closing Cash: Ksh ${s.closing_cash}`,
+            user: s.profiles?.full_name || 'User',
+            id: `close-${s.id}`
+          });
         }
       });
 
-    // FIX: Explicitly type 'err' as any
-    }).catch((err: any) => console.error("Auth error in audit:", err));
-  },
+      // 4. Fetch Auth Logs (Audit Logs table)
+      const { data: logs } = await supabase
+        .from('audit_logs')
+        .select('*, profiles(full_name)')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
-  /**
-   * Retrieves the daily report.
-   * BLOCKING: We need this data to display the report.
-   */
-  async getDailyReport(organizationId: string, date: string) {
-    const supabase = createClient();
-    
-    const start = new Date(date);
-    start.setHours(0,0,0,0);
-    const end = new Date(date);
-    end.setHours(23,59,59,999);
+      logs?.forEach(l => {
+        activities.push({
+          type: 'LOG',
+          icon: l.action.includes('LOGIN') ? '🔑' : '📝',
+          color: 'black',
+          date: l.created_at,
+          title: l.action,
+          description: l.details,
+          user: l.profiles?.full_name || 'User',
+          id: l.id
+        });
+      });
 
-    const { data, error } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(500);
+      // Sort all by date
+      activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    if (error) throw error;
-    return data;
+      return activities.slice(0, limit);
+
+    } catch (err) {
+      console.error("Error fetching activities", err);
+      return [];
+    }
   }
 };

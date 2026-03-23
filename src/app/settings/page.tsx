@@ -13,7 +13,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
-  // State for all settings fields
   const [shopName, setShopName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
@@ -22,7 +21,6 @@ export default function SettingsPage() {
   const [vatNumber, setVatNumber] = useState("");
   const [receiptFooter, setReceiptFooter] = useState("");
 
-  // 1. DEFINE HOOKS FIRST (Always run)
   useEffect(() => {
     if (organizationId) {
       fetchSettings();
@@ -32,6 +30,9 @@ export default function SettingsPage() {
   }, [organizationId]);
 
   const fetchSettings = async () => {
+    // FIX: Add safety check for TypeScript
+    if (!organizationId) return;
+
     setLoading(true);
     try {
       const data = await settingsService.getSettings(organizationId);
@@ -72,7 +73,6 @@ export default function SettingsPage() {
     }
   };
 
-  // 2. RETURN LOADING STATE LAST (After hooks)
   if (loading) return <div className="p-8">Loading settings...</div>;
   if (!organizationId) return <div className="p-8 text-center text-gray-500">Initializing...</div>;
 

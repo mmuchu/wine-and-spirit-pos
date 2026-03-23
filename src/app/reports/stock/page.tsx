@@ -22,6 +22,9 @@ function StockReportContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // NEW: Track which row is currently being edited
+  const [focusedRow, setFocusedRow] = useState<string | null>(null);
+
   const [isClosingShift, setIsClosingShift] = useState(false);
   const [closingCash, setClosingCash] = useState<number>(0);
   const [currentShift, setCurrentShift] = useState<any>(null);
@@ -49,7 +52,6 @@ function StockReportContent() {
   }, [organizationId, currentShift]);
 
   const checkActiveShift = async () => {
-    // FIX: Safety check for organizationId
     if (!organizationId) return;
 
     try {
@@ -68,24 +70,20 @@ function StockReportContent() {
     setError(null);
     
     try {
-      // 1. Get all products (Current System Stock)
       const { data: products, error: pError } = await supabase
         .from("products")
         .select("id, name, stock");
       
       if (pError) throw new Error(`Products Error: ${pError.message}`);
 
-      // 2. Get Shift Snapshot (Opening Stock)
       const openingStockMap = currentShift.opening_stock || {};
 
-      // 3. Get Sales for THIS SHIFT
       const { data: sales } = await supabase
         .from("sales")
         .select("items")
         .eq("organization_id", organizationId)
         .eq("shift_id", currentShift.id); 
 
-      // 4. Get Purchases for THIS SHIFT
       const { data: purchases } = await supabase
         .from("stock_movements")
         .select("product_id, quantity")
@@ -94,10 +92,8 @@ function StockReportContent() {
         .eq("type", "purchase");
 
       const report = products.map((p: any) => {
-        // A. Opening Stock (From Snapshot)
         const opening = openingStockMap[p.id] || 0;
 
-        // B. Sales (From Shift Sales)
         let soldQty = 0;
         sales?.forEach((sale: any) => {
           sale.items?.forEach((item: any) => {
@@ -105,15 +101,12 @@ function StockReportContent() {
           });
         });
 
-        // C. Recorded Purchases
         let recordedPurchases = purchases
           ?.filter((pur: any) => pur.product_id === p.id)
           .reduce((sum: number, pur: any) => sum + pur.quantity, 0) || 0;
 
-        // D. Current System Stock
         const closingStock = Math.max(0, p.stock || 0); 
 
-        // E. INTEGRITY LOGIC (No Duplicates)
         const impliedPurchases = closingStock - opening + soldQty;
         let purchasedQty = Math.max(recordedPurchases, impliedPurchases);
         purchasedQty = Math.max(0, purchasedQty);
@@ -243,7 +236,15 @@ function StockReportContent() {
                 </thead>
                 <tbody className="divide-y">
                   {reportData.map((r, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
+                    // FIX: Highlight row if focused
+                    <tr 
+                      key={i} 
+                      className={`transition-colors duration-150 ${
+                        focusedRow === r.id 
+                          ? 'bg-yellow-100 ring-2 ring-inset ring-yellow-400' 
+                          : 'hover:bg-gray-50'
+                      }`}
+                    >
                       <td className="p-3 font-medium">{r.name}</td>
                       <td className="p-3 text-center">{r.opening}</td>
                       <td className="p-3 text-center text-blue-600 font-bold">{r.purchased}</td>
@@ -254,7 +255,9 @@ function StockReportContent() {
                           type="number"
                           value={actualInputs[r.id] || 0}
                           onChange={(e) => handleInputChange(r.id, e.target.value)}
-                          className="w-20 p-1 border rounded text-center text-sm font-bold"
+                          onFocus={() => setFocusedRow(r.id)} // SET FOCUS
+                          onBlur={() => setFocusedRow(null)}  // CLEAR FOCUS
+                          className="w-20 p-1 border rounded text-center text-sm font-bold focus:ring-2 focus:ring-black"
                         />
                       </td>
                       <td className={`p-3 text-center font-bold ${getVariance(r.id) === 0 ? 'text-gray-400' : 'text-red-600 bg-red-50'}`}>
