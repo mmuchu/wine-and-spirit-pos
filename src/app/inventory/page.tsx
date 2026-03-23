@@ -86,8 +86,6 @@ export default function InventoryPage() {
   
   const handleCloseAdjustment = () => {
     setIsAdjustmentModalOpen(false);
-    // Optional: Clear selection after close
-    // setSelectedProduct(null); 
   };
 
   const handleSuccess = () => {
@@ -112,7 +110,6 @@ export default function InventoryPage() {
         </button>
       </div>
 
-      {/* Search */}
       <div className="sticky top-0 z-10 py-2 bg-gray-50">
         <input
           type="text"
@@ -123,7 +120,6 @@ export default function InventoryPage() {
         />
       </div>
 
-      {/* Products Table */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="table-container overflow-x-auto">
           <table className="w-full text-sm min-w-[1000px] sticky-header">
@@ -145,7 +141,6 @@ export default function InventoryPage() {
               ) : (
                 filteredProducts.map((product) => {
                   const isLow = product.stock < (product.min_stock || 10);
-                  // FIX: Highlight if selected
                   const isSelected = selectedProduct?.id === product.id;
                   
                   return (
@@ -192,7 +187,6 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* RECENT MOVEMENTS LOG */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="p-4 border-b flex justify-between items-center">
           <h3 className="font-bold text-lg">Recent Stock Movements</h3>
@@ -210,8 +204,7 @@ export default function InventoryPage() {
                   <div>
                     <p className="font-medium text-sm">{m.products?.name || 'Unknown'}</p>
                     <p className="text-xs text-gray-400">
-                      {m.type.toUpperCase()} • {m.reason || m.notes || 'No note'} 
-                      {m.suppliers && <span className="ml-1 text-blue-500">from {m.suppliers.name}</span>}
+                      {m.type.toUpperCase()} • {m.notes || 'No note'} 
                     </p>
                   </div>
                 </div>
@@ -227,7 +220,6 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Modals */}
       <ProductFormModal
         isOpen={isProductModalOpen}
         onClose={() => setIsProductModalOpen(false)}
