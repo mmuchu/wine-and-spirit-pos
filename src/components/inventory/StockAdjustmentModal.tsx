@@ -1,4 +1,4 @@
-// src/components/inventory/StockAdjustmentModal.tsx
+ // src/components/inventory/StockAdjustmentModal.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -94,6 +94,7 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
         
+        {/* Header */}
         <div className="bg-gray-900 p-6 text-white flex justify-between items-center">
           <div>
             <h2 className="text-xl font-bold">{product.name}</h2>
@@ -104,6 +105,7 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
 
         <div className="p-8 space-y-6">
           
+          {/* Mode Selector */}
           <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
             <button 
               onClick={() => setMode('purchase')}
@@ -119,6 +121,7 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             </button>
           </div>
 
+          {/* Purchase Fields */}
           {mode === 'purchase' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -176,6 +179,7 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             </div>
           )}
 
+          {/* Adjustment Fields */}
           {mode === 'adjustment' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -218,6 +222,7 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             </div>
           )}
 
+          {/* Notes */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Notes</label>
             <textarea 
@@ -229,6 +234,7 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             />
           </div>
 
+          {/* Actions */}
           <div className="flex gap-3 pt-4 border-t">
             <button 
               onClick={onClose}
