@@ -2,23 +2,16 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const auditService = {
-  // LOG an action
-  async log(action: string, details: string, meta: object = {}) {
+  // Updated to accept organizationId
+  async log(action: string, details: string, organizationId?: string, meta: object = {}) {
     const supabase = createClient();
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // We need organizationId. 
-      // Since we don't have it here directly, we can skip it or pass it. 
-      // For global logs (like login), we might not have org context yet.
-      // But for org actions, we should pass it.
-      // Let's simplify: We will insert without org_id for login, or require org_id for others.
-      // Better: The calling component should pass context.
-      
-      // Simple generic log:
       await supabase.from('audit_logs').insert({
         user_id: user.id,
+        organization_id: organizationId, // Save the ID
         action,
         details,
         meta
@@ -53,7 +46,7 @@ export const auditService = {
         id: s.id
       }));
 
-      // 2. Fetch Stock Movements (Purchases/Adjustments)
+      // 2. Fetch Stock Movements
       const { data: movements } = await supabase
         .from('stock_movements')
         .select('*, products(name), profiles(full_name)')
@@ -108,11 +101,11 @@ export const auditService = {
         }
       });
 
-      // 4. Fetch Auth Logs (Audit Logs table)
+      // 4. Fetch Audit Logs
       const { data: logs } = await supabase
         .from('audit_logs')
         .select('*, profiles(full_name)')
-        .eq('organization_id', organizationId)
+        .eq('organization_id', organizationId) // Only logs for this shop
         .order('created_at', { ascending: false })
         .limit(limit);
 
