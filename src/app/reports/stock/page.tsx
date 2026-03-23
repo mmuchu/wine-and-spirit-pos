@@ -49,6 +49,9 @@ function StockReportContent() {
   }, [organizationId, currentShift]);
 
   const checkActiveShift = async () => {
+    // FIX: Safety check for organizationId
+    if (!organizationId) return;
+
     try {
       const shift = await shiftService.getCurrentShift(organizationId);
       setCurrentShift(shift);
@@ -108,23 +111,11 @@ function StockReportContent() {
           .reduce((sum: number, pur: any) => sum + pur.quantity, 0) || 0;
 
         // D. Current System Stock
-        const closingStock = Math.max(0, p.stock || 0); // Prevent negative display
+        const closingStock = Math.max(0, p.stock || 0); 
 
         // E. INTEGRITY LOGIC (No Duplicates)
-        // Calculate what purchases SHOULD be based on stock levels
-        // Formula: Closing = Opening + Purchased - Sold
-        // Therefore: Purchased = Closing - Opening + Sold
         const impliedPurchases = closingStock - opening + soldQty;
-
-        // Decision: Use the MAXIMUM of Recorded vs Implied.
-        // - If Recorded=10, Implied=10 -> Use 10.
-        // - If Recorded=0, Implied=10 (New Product missing log) -> Use 10.
-        // - If Recorded=10, Implied=0 (Stock vanished?) -> Use 10 (Trust log).
-        // - If Recorded=5, Implied=10 (Partial log) -> Use 10 (System Integrity).
-        // This prevents adding them together (Duplicates).
         let purchasedQty = Math.max(recordedPurchases, impliedPurchases);
-        
-        // Ensure never negative
         purchasedQty = Math.max(0, purchasedQty);
 
         const expectedStock = opening + purchasedQty - soldQty;
@@ -173,10 +164,7 @@ function StockReportContent() {
             const actualCount = actualInputs[item.id];
             const variance = actualCount - item.expected;
             if (variance !== 0) {
-                // 1. Update Product Stock
                 await supabase.from('products').update({ stock: actualCount }).eq('id', item.id);
-                
-                // 2. Log Adjustment
                 await supabase.from('stock_movements').insert({
                     organization_id: organizationId,
                     product_id: item.id,
@@ -187,7 +175,7 @@ function StockReportContent() {
             }
         }
         alert("Adjustments Saved!");
-        generateReport(); // Refresh
+        generateReport();
     } catch (err: any) { alert("Error: " + err.message); } 
     finally { setSaving(false); }
   };

@@ -92,10 +92,11 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
+      {/* FIX: Added max-h-[90vh] and flex flex-col */}
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         
-        {/* Header */}
-        <div className="bg-gray-900 p-6 text-white flex justify-between items-center">
+        {/* Header - Sticky */}
+        <div className="bg-gray-900 p-6 text-white flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-xl font-bold">{product.name}</h2>
             <p className="text-sm text-gray-400">Current Stock: <span className="font-bold text-white">{product.stock}</span></p>
@@ -103,9 +104,9 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
           <button onClick={onClose} className="text-3xl text-gray-400 hover:text-white">&times;</button>
         </div>
 
-        <div className="p-8 space-y-6">
+        {/* Content - Scrollable */}
+        <div className="p-8 space-y-6 overflow-y-auto flex-1 min-h-0">
           
-          {/* Mode Selector */}
           <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
             <button 
               onClick={() => setMode('purchase')}
@@ -121,7 +122,6 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             </button>
           </div>
 
-          {/* Purchase Fields */}
           {mode === 'purchase' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -179,7 +179,6 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             </div>
           )}
 
-          {/* Adjustment Fields */}
           {mode === 'adjustment' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -222,7 +221,6 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
             </div>
           )}
 
-          {/* Notes */}
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Notes</label>
             <textarea 
@@ -233,25 +231,25 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
               placeholder="Optional details..."
             />
           </div>
+        </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t">
-            <button 
-              onClick={onClose}
-              className="flex-1 py-3 border rounded-lg font-bold hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={handleSubmit}
-              disabled={loading}
-              className={`flex-1 py-3 rounded-lg font-bold text-white disabled:bg-gray-300 ${
-                mode === 'purchase' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'
-              }`}
-            >
-              {loading ? "Saving..." : "Confirm Entry"}
-            </button>
-          </div>
+        {/* Footer - Sticky at bottom */}
+        <div className="flex gap-3 p-6 border-t bg-white shrink-0">
+          <button 
+            onClick={onClose}
+            className="flex-1 py-3 border rounded-lg font-bold hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={handleSubmit}
+            disabled={loading}
+            className={`flex-1 py-3 rounded-lg font-bold text-white disabled:bg-gray-300 ${
+              mode === 'purchase' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'
+            }`}
+          >
+            {loading ? "Saving..." : "Confirm Entry"}
+          </button>
         </div>
       </div>
     </div>
