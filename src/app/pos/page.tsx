@@ -23,10 +23,12 @@ export default function POSPage() {
 
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "mpesa">("cash");
   
+  // NEW: State for Cash Received
+  const [cashReceived, setCashReceived] = useState("");
+  
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [lastSale, setLastSale] = useState<any>(null);
   
-  // Settings State
   const [vatEnabled, setVatEnabled] = useState(true);
   const [shopName, setShopName] = useState("KENYAN SPIRIT");
   const [shopAddress, setShopAddress] = useState("Nairobi, Kenya");
@@ -120,6 +122,9 @@ export default function POSPage() {
   const tax = vatEnabled ? subtotal * 0.16 : 0;
   const total = subtotal + tax;
 
+  // Calculate Change
+  const change = parseFloat(cashReceived) - total;
+
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
     setProcessing(true);
@@ -165,7 +170,6 @@ export default function POSPage() {
         { sale_id: sale.id }
       );
 
-      // Pass settings to sale object for receipt
       setLastSale({ 
         ...sale, 
         date: new Date().toISOString(),
@@ -176,6 +180,7 @@ export default function POSPage() {
       
       setIsReceiptModalOpen(true);
       setCart([]);
+      setCashReceived(""); // Reset cash input
       fetchProducts();
 
     } catch (err: any) {
@@ -360,6 +365,30 @@ export default function POSPage() {
               M-Pesa
             </button>
           </div>
+
+          {/* NEW: Cash Input Field */}
+          {paymentMethod === "cash" && (
+            <div className="space-y-2 pt-2">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">Ksh</span>
+                <input
+                  type="number"
+                  placeholder="Enter amount received"
+                  value={cashReceived}
+                  onChange={(e) => setCashReceived(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg text-right text-lg font-bold focus:ring-2 focus:ring-black"
+                />
+              </div>
+              
+              {/* Change Display */}
+              {!isNaN(change) && change > 0 && (
+                <div className="bg-green-50 p-3 rounded-lg border border-green-200 text-center">
+                  <span className="text-sm text-green-800 font-bold">CHANGE: </span>
+                  <span className="text-xl font-extrabold text-green-700">{formatCurrency(change)}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <button
             onClick={handleCompleteSale}

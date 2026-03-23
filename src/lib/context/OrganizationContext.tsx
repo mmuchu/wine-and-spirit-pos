@@ -1,97 +1,93 @@
  // src/lib/context/OrganizationContext.tsx
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { Session, AuthChangeEvent } from '@supabase/supabase-js'; // FIX: Import types
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createClient } from "@/lib/supabase/client";
 
-interface OrgContextType {
+interface OrganizationContextType {
   organizationId: string | null;
   userRole: string | null;
   loading: boolean;
-  session: Session | null;
 }
 
-const OrganizationContext = createContext<OrgContextType>({ 
-  organizationId: null, 
-  userRole: null, 
+const OrganizationContext = createContext<OrganizationContextType>({
+  organizationId: null,
+  userRole: null,
   loading: true,
-  session: null
 });
 
 export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
+  const supabase = createClient();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  const supabase = createClient();
 
   useEffect(() => {
-    let mounted = true;
-
-    const initAuth = async () => {
+    const init = async () => {
       try {
-        // 1. Get Initial Session
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        const { data: { user } } = await supabase.auth.getUser();
         
-        if (!mounted) return;
-
-        if (initialSession) {
-          setSession(initialSession);
-          processUser(initialSession.user);
-        } else {
+        if (!user) {
           setLoading(false);
+          return;
         }
 
-        // 2. Listen for Changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, newSession: Session | null) => {
-          if (!mounted) return;
+        // 1. Check if ID exists in user metadata
+        let orgId = user.user_metadata?.organization_id;
+        
+        // 2. AUTO-FIX: If missing, find or create it
+        if (!orgId) {
+          console.log("Organization ID missing. Attempting auto-fix...");
           
-          setSession(newSession);
-          if (newSession) {
-            processUser(newSession.user);
+          // A. Try to find an existing organization (Single shop logic)
+          const { data: existingOrgs } = await supabase
+            .from('organizations')
+            .select('id')
+            .limit(1);
+
+          if (existingOrgs && existingOrgs.length > 0) {
+            orgId = existingOrgs[0].id;
+            console.log("Found existing org:", orgId);
           } else {
-            setOrganizationId(null);
-            setUserRole(null);
-            setLoading(false);
+            // B. If no org exists, create one
+            const { data: newOrg } = await supabase
+              .from('organizations')
+              .insert({ name: 'My Shop' })
+              .select()
+              .single();
+            
+            if (newOrg) {
+              orgId = newOrg.id;
+                console.log("Created new org:", orgId);
+            }
           }
-        });
 
-        // Cleanup
-        return () => {
-          mounted = false;
-          subscription?.unsubscribe();
-        };
+          // C. Save it to the user so we don't have to do this again
+          if (orgId) {
+            await supabase.auth.updateUser({
+              data: { organization_id: orgId }
+            });
+          }
+        }
 
-      } catch (err) {
-        console.error("Auth Init Error:", err);
-        if (mounted) setLoading(false);
+        // 3. Set the state
+        if (orgId) {
+          setOrganizationId(orgId);
+          setUserRole('admin'); // Default to admin for owner
+        }
+
+      } catch (error) {
+        console.error("Error in OrganizationContext:", error);
+      } finally {
+        setLoading(false);
       }
     };
 
-    initAuth();
-  }, [supabase]);
-
-  const processUser = (user: any) => {
-    let orgId = user?.user_metadata?.organization_id;
-    let role = user?.user_metadata?.role || 'cashier';
-
-    // Safety Hatch for Dev
-    if (!orgId || orgId === "undefined") {
-      orgId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-      role = 'admin';
-      // Update silently in background
-      supabase.auth.updateUser({ data: { organization_id: orgId, role: role } });
-    }
-
-    setOrganizationId(orgId);
-    setUserRole(role);
-    setLoading(false);
-  };
+    init();
+  }, []);
 
   return (
-    <OrganizationContext.Provider value={{ organizationId, userRole, loading, session }}>
+    <OrganizationContext.Provider value={{ organizationId, userRole, loading }}>
       {children}
     </OrganizationContext.Provider>
   );
