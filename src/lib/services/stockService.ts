@@ -2,13 +2,15 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const stockService = {
-  // DETAILED STOCK ADDITION (Purchase)
   async addStock(details: {
     productId: string;
     quantity: number;
     organizationId: string;
     shiftId?: string;
-    supplierId?: string;
+    // New text fields
+    supplierName?: string;
+    contactPerson?: string;
+    supplierPhone?: string;
     invoiceNo?: string;
     unitCost?: number;
     notes?: string;
@@ -17,7 +19,6 @@ export const stockService = {
     
     const totalCost = (details.unitCost || 0) * details.quantity;
 
-    // 1. Insert Movement Record
     const { data, error } = await supabase
       .from('stock_movements')
       .insert({
@@ -26,7 +27,10 @@ export const stockService = {
         quantity: details.quantity,
         type: 'purchase',
         shift_id: details.shiftId,
-        supplier_id: details.supplierId,
+        // Save text fields
+        supplier_name: details.supplierName,
+        supplier_contact: details.contactPerson,
+        supplier_phone: details.supplierPhone,
         invoice_no: details.invoiceNo,
         unit_cost: details.unitCost,
         total_cost: totalCost,
@@ -36,8 +40,7 @@ export const stockService = {
 
     if (error) throw error;
 
-    // 2. CRITICAL: Update the Product Stock Count
-    // We need to fetch current stock first to ensure accuracy
+    // Update Product Stock
     const { data: product, error: fetchError } = await supabase
       .from('products')
       .select('stock, cost_price')
@@ -49,12 +52,11 @@ export const stockService = {
     const currentStock = product?.stock || 0;
     const newStock = currentStock + details.quantity;
 
-    // 3. Update Product
     const { error: updateError } = await supabase
       .from('products')
       .update({ 
         stock: newStock,
-        cost_price: details.unitCost || product?.cost_price // Update cost if provided
+        cost_price: details.unitCost || product?.cost_price
       })
       .eq('id', details.productId);
 
@@ -63,10 +65,9 @@ export const stockService = {
     return data;
   },
 
-  // STOCK ADJUSTMENT (Damage, Loss, Count)
   async adjustStock(details: {
     productId: string;
-    quantity: number; // Can be negative
+    quantity: number;
     organizationId: string;
     shiftId?: string;
     reason: string;
@@ -74,7 +75,6 @@ export const stockService = {
   }) {
     const supabase = createClient();
 
-    // 1. Insert Movement
     const { data, error } = await supabase
       .from('stock_movements')
       .insert({
@@ -89,7 +89,6 @@ export const stockService = {
 
     if (error) throw error;
 
-    // 2. Update Product Stock
     const { data: product, error: fetchError } = await supabase
       .from('products')
       .select('stock')
@@ -99,7 +98,7 @@ export const stockService = {
     if (fetchError) throw fetchError;
 
     const currentStock = product?.stock || 0;
-    const newStock = currentStock + details.quantity; // quantity can be negative
+    const newStock = currentStock + details.quantity;
 
     const { error: updateError } = await supabase
       .from('products')
@@ -115,7 +114,7 @@ export const stockService = {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('stock_movements')
-      .select('*, products(name), suppliers(name)')
+      .select('*, products(name)')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false })
       .limit(limit);

@@ -20,11 +20,15 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
   const { organizationId } = useOrganization();
   
   const [mode, setMode] = useState<'purchase' | 'adjustment'>('purchase');
-  const [suppliers, setSuppliers] = useState<any[]>([]);
   
   const [quantity, setQuantity] = useState("0");
   const [unitCost, setUnitCost] = useState("0");
-  const [supplierId, setSupplierId] = useState("");
+  
+  // NEW: Text inputs for supplier
+  const [supplierName, setSupplierName] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
+  const [supplierPhone, setSupplierPhone] = useState("");
+  
   const [invoiceNo, setInvoiceNo] = useState("");
   const [reason, setReason] = useState("stock_take");
   const [notes, setNotes] = useState("");
@@ -34,18 +38,14 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
     if (isOpen && product) {
       setQuantity("0");
       setUnitCost(product.cost_price?.toString() || "0");
-      setSupplierId("");
+      setSupplierName("");
+      setContactPerson("");
+      setSupplierPhone("");
       setInvoiceNo("");
       setReason("stock_take");
       setNotes("");
-      fetchSuppliers();
     }
   }, [isOpen, product]);
-
-  const fetchSuppliers = async () => {
-    const { data } = await supabase.from('suppliers').select('id, name');
-    if (data) setSuppliers(data);
-  };
 
   const handleSubmit = async () => {
     if (!organizationId || !product) return;
@@ -62,8 +62,11 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
           quantity: qty,
           organizationId,
           shiftId: currentShift?.id,
-          supplierId: supplierId || undefined,
-          invoiceNo: invoiceNo || undefined,
+          // Pass new fields
+          supplierName: supplierName,
+          contactPerson: contactPerson,
+          supplierPhone: supplierPhone,
+          invoiceNo: invoiceNo,
           unitCost: parseFloat(unitCost) || 0,
           notes
         });
@@ -92,10 +95,8 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      {/* FIX: Added max-h-[90vh] and flex flex-col */}
       <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         
-        {/* Header - Sticky */}
         <div className="bg-gray-900 p-6 text-white flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-xl font-bold">{product.name}</h2>
@@ -104,7 +105,6 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
           <button onClick={onClose} className="text-3xl text-gray-400 hover:text-white">&times;</button>
         </div>
 
-        {/* Content - Scrollable */}
         <div className="p-8 space-y-6 overflow-y-auto flex-1 min-h-0">
           
           <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
@@ -146,18 +146,37 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Supplier</label>
-                  <select 
-                    value={supplierId} 
-                    onChange={e => setSupplierId(e.target.value)}
-                    className="w-full p-3 border rounded-lg bg-white"
-                  >
-                    <option value="">Select Supplier</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+              {/* NEW: Supplier Text Inputs */}
+              <div className="border-t pt-4 space-y-3">
+                <h4 className="font-bold text-gray-700 text-sm">Supplier Details (Optional)</h4>
+                <div className="grid grid-cols-1 gap-3">
+                   <input 
+                    type="text" 
+                    value={supplierName}
+                    onChange={e => setSupplierName(e.target.value)}
+                    className="w-full p-2 border rounded-lg text-sm"
+                    placeholder="Supplier Name (e.g. East Africa Breweries)"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input 
+                      type="text" 
+                      value={contactPerson}
+                      onChange={e => setContactPerson(e.target.value)}
+                      className="w-full p-2 border rounded-lg text-sm"
+                      placeholder="Contact Person"
+                    />
+                    <input 
+                      type="text" 
+                      value={supplierPhone}
+                      onChange={e => setSupplierPhone(e.target.value)}
+                      className="w-full p-2 border rounded-lg text-sm"
+                      placeholder="Phone Number"
+                    />
+                  </div>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Invoice #</label>
                   <input 
@@ -168,13 +187,14 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
                     placeholder="INV-001"
                   />
                 </div>
-              </div>
-
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-center">
-                <p className="text-xs text-blue-600 font-medium">Total Purchase Value</p>
-                <p className="text-3xl font-extrabold text-blue-800">
-                  {formatCurrency((parseFloat(unitCost) || 0) * (parseInt(quantity) || 0))}
-                </p>
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex items-center justify-center">
+                   <div className="text-center">
+                      <p className="text-xs text-blue-600 font-medium">Total Value</p>
+                      <p className="text-2xl font-extrabold text-blue-800">
+                        {formatCurrency((parseFloat(unitCost) || 0) * (parseInt(quantity) || 0))}
+                      </p>
+                   </div>
+                </div>
               </div>
             </div>
           )}
@@ -214,9 +234,6 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
                 <p className="text-3xl font-extrabold text-yellow-800">
                   {product.stock + (parseInt(quantity) || 0)}
                 </p>
-                { (product.stock + (parseInt(quantity) || 0)) < 0 && (
-                  <p className="text-red-600 text-xs font-bold mt-1">Warning: Stock cannot be negative!</p>
-                )}
               </div>
             </div>
           )}
@@ -231,25 +248,24 @@ export function StockAdjustmentModal({ isOpen, onClose, onSuccess, product }: Pr
               placeholder="Optional details..."
             />
           </div>
-        </div>
 
-        {/* Footer - Sticky at bottom */}
-        <div className="flex gap-3 p-6 border-t bg-white shrink-0">
-          <button 
-            onClick={onClose}
-            className="flex-1 py-3 border rounded-lg font-bold hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={handleSubmit}
-            disabled={loading}
-            className={`flex-1 py-3 rounded-lg font-bold text-white disabled:bg-gray-300 ${
-              mode === 'purchase' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'
-            }`}
-          >
-            {loading ? "Saving..." : "Confirm Entry"}
-          </button>
+          <div className="flex gap-3 pt-4 border-t">
+            <button 
+              onClick={onClose}
+              className="flex-1 py-3 border rounded-lg font-bold hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSubmit}
+              disabled={loading}
+              className={`flex-1 py-3 rounded-lg font-bold text-white disabled:bg-gray-300 ${
+                mode === 'purchase' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'
+              }`}
+            >
+              {loading ? "Saving..." : "Confirm Entry"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

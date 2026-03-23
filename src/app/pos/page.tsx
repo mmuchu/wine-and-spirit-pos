@@ -28,10 +28,8 @@ export default function POSPage() {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [lastSale, setLastSale] = useState<any>(null);
   
-  // Shift State
   const [currentShift, setCurrentShift] = useState<any>(null);
 
-  // Settings State
   const [vatEnabled, setVatEnabled] = useState(true);
   const [shopName, setShopName] = useState("KENYAN SPIRIT");
   const [shopAddress, setShopAddress] = useState("Nairobi, Kenya");
@@ -194,11 +192,10 @@ export default function POSPage() {
         }
       }
 
-      // FIX: Correct order - organizationId is 3rd, meta is 4th
       auditService.log(
         "SALE_COMPLETED",
         `Sold ${cart.length} items for ${formatCurrency(total)}`,
-        organizationId, 
+        organizationId,
         { sale_id: sale.id, shift_id: currentShift.id }
       );
 
@@ -275,7 +272,6 @@ export default function POSPage() {
   return (
     <div className="flex h-screen bg-gray-100 font-sans text-gray-800">
       
-      {/* LEFT: Product Selection */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
@@ -310,7 +306,6 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* RIGHT: Cart Sidebar */}
       <div className="w-[420px] bg-white border-l border-gray-200 flex flex-col h-screen shadow-2xl">
         
         <div className="px-6 py-5 border-b border-gray-100 bg-white shrink-0">
@@ -346,11 +341,12 @@ export default function POSPage() {
                   >
                     -
                   </button>
+                  {/* FIX: Input is now editable for large numbers */}
                   <input
-                    type="text"
+                    type="number"
                     value={item.quantity}
-                    readOnly
-                    className="w-8 text-center font-bold text-sm bg-transparent border-none focus:ring-0"
+                    onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
+                    className="w-10 text-center font-bold text-sm border rounded focus:ring-2 focus:ring-black"
                   />
                   <button 
                     onClick={() => updateQuantity(item.id, item.quantity + 1)} 
@@ -367,7 +363,6 @@ export default function POSPage() {
           )}
         </div>
 
-        {/* PAYMENT FOOTER */}
         <div className="border-t border-gray-200 bg-white p-6 space-y-4 shrink-0 mt-auto">
           
           <div className="space-y-2 text-sm">
