@@ -45,11 +45,8 @@ export default function POSPage() {
     }
   }, [organizationId]);
 
-  // Fetch Active Shift
   const fetchActiveShift = async () => {
-    // FIX: Safety check for organizationId
     if (!organizationId) return;
-
     try {
       const shift = await shiftService.getCurrentShift(organizationId);
       setCurrentShift(shift);
@@ -144,20 +141,18 @@ export default function POSPage() {
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
 
-    // 1. ENFORCE SHIFT
     if (!currentShift) {
       alert("No Active Shift. Please start a shift first.");
       return;
     }
 
-    // 2. VALIDATE STOCK (Prevent Negative)
     for (const item of cart) {
       const product = products.find((p) => p.id === item.id);
       if (!product) continue;
       
       if (product.stock < item.quantity) {
         alert(`Insufficient stock for "${item.name}". \nAvailable: ${product.stock}, Requested: ${item.quantity}`);
-        return; // Stop the sale
+        return;
       }
     }
 
@@ -175,7 +170,7 @@ export default function POSPage() {
           tax_amount: tax,
           payment_method: paymentMethod,
           status: paymentMethod === "mpesa" ? "pending" : "completed",
-          shift_id: currentShift.id, // LINK SHIFT
+          shift_id: currentShift.id,
           items: cart.map((item) => ({
             id: item.id,
             name: item.name,
@@ -189,7 +184,6 @@ export default function POSPage() {
 
       if (saleError) throw saleError;
 
-      // Update Stock
       for (const item of cart) {
         const product = products.find((p) => p.id === item.id);
         if (product) {
@@ -200,9 +194,11 @@ export default function POSPage() {
         }
       }
 
+      // FIX: Correct order - organizationId is 3rd, meta is 4th
       auditService.log(
         "SALE_COMPLETED",
         `Sold ${cart.length} items for ${formatCurrency(total)}`,
+        organizationId, 
         { sale_id: sale.id, shift_id: currentShift.id }
       );
 
@@ -217,7 +213,7 @@ export default function POSPage() {
       setIsReceiptModalOpen(true);
       setCart([]);
       setCashReceived("");
-      fetchProducts(); // Refresh products to show new stock levels
+      fetchProducts();
 
     } catch (err: any) {
       console.error(err);
@@ -227,10 +223,8 @@ export default function POSPage() {
     }
   };
 
-  // Loading State
   if (loading) return <div className="h-screen flex items-center justify-center bg-gray-100 text-gray-500">Loading POS...</div>;
 
-  // No Shift State
   if (!currentShift && !loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-gray-100 space-y-4">
@@ -286,7 +280,6 @@ export default function POSPage() {
         
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Sales Terminal</h1>
-          {/* Shift Indicator */}
           <span className="px-2 py-1 text-[10px] bg-green-100 text-green-700 rounded font-bold uppercase">
             Shift Active
           </span>
@@ -419,7 +412,6 @@ export default function POSPage() {
             </button>
           </div>
 
-          {/* Cash Input */}
           {paymentMethod === "cash" && (
             <div className="space-y-2 pt-2">
               <div className="relative">
@@ -433,7 +425,6 @@ export default function POSPage() {
                 />
               </div>
               
-              {/* Change Display */}
               {!isNaN(change) && change > 0 && (
                 <div className="bg-green-50 p-3 rounded-lg border border-green-200 text-center">
                   <span className="text-sm text-green-800 font-bold">CHANGE: </span>
