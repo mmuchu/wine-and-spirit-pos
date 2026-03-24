@@ -2,92 +2,81 @@
 import { createClient } from "@/lib/supabase/client";
 
 export const shiftService = {
-  async getCurrentShift(organizationId: string) {
+  async getCurrentShift(organizationId: string | null) {
+    if (!organizationId) return null;
+    
     const supabase = createClient();
+    
     const { data, error } = await supabase
-      .from("shifts")
-      .select("*")
-      .eq("organization_id", organizationId)
-      .eq("status", "active")
-      .maybeSingle();
+      .from('shifts')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .is('closed_at', null) // Only get open shifts
+      .order('opened_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(); // Use maybeSingle to avoid error if no rows
 
     if (error) {
-      console.error("Error fetching shift:", error);
+      // Only log real errors, ignore "no rows" which is expected
+      if (error.code !== 'PGRST116') {
+        console.error("Error fetching shift:", error);
+      }
       return null;
     }
+    
     return data;
   },
 
-  // CALLED WHEN STARTING A SHIFT
   async openShift(organizationId: string, openingCash: number = 0) {
     const supabase = createClient();
-    
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("User not authenticated");
 
-    // 1. Get Current Stock Levels (The Snapshot)
+    // Get current stock levels for snapshot
     const { data: products } = await supabase
-        .from('products')
-        .select('id, stock');
-        
-    // Format: { 'product-id': 10, 'product-id-2': 5 }
-    const openingStockMap: Record<string, number> = {};
+      .from('products')
+      .select('id, stock')
+      .eq('organization_id', organizationId);
+
+    const stockSnapshot: Record<string, number> = {};
     products?.forEach(p => {
-        openingStockMap[p.id] = p.stock || 0;
+      if (p.id) stockSnapshot[p.id] = p.stock || 0;
     });
 
-    // 2. Create Shift with Snapshot
     const { data, error } = await supabase
-      .from("shifts")
+      .from('shifts')
       .insert({
         organization_id: organizationId,
-        user_id: user.id,
+        opened_by: user?.id,
         opening_cash: openingCash,
-        opening_stock: openingStockMap, // SNAPSHOT
-        status: "active"
+        opening_stock: stockSnapshot,
+        status: 'active'
       })
       .select()
       .single();
 
-    if (error) {
-      console.error("SHIFT START ERROR:", error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data;
   },
 
-  // CALLED WHEN CLOSING A SHIFT
   async closeShift(shiftId: string, closingCash: number, closingStock: any, notes: string) {
     const supabase = createClient();
-    
-    // 1. Get Current Stock Levels (Closing Snapshot)
-    const { data: products } = await supabase
-        .from('products')
-        .select('id, stock');
-
-    const closingStockMap: Record<string, number> = {};
-    products?.forEach(p => {
-        closingStockMap[p.id] = p.stock || 0;
-    });
+    const { data: { user } } = await supabase.auth.getUser();
 
     const { data, error } = await supabase
-      .from("shifts")
+      .from('shifts')
       .update({
+        closed_at: new Date().toISOString(),
+        closed_by: user?.id,
         closing_cash: closingCash,
-        closing_stock: closingStockMap, // SNAPSHOT
-        notes: notes,
-        status: "closed",
-        closed_at: new Date().toISOString()
+        closing_stock: closingStock,
+        status: 'closed',
+        notes: notes
       })
-      .eq("id", shiftId)
-      .select();
+      .eq('id', shiftId)
+      .select()
+      .single();
 
-    if (error) {
-      console.error("SHIFT CLOSE ERROR:", error);
-      throw error;
-    }
-    
+    if (error) throw error;
     return data;
   }
 };
