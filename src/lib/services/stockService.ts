@@ -7,6 +7,7 @@ export const stockService = {
     quantity: number;
     organizationId: string;
     shiftId?: string;
+    // Text fields from Inventory
     supplierName?: string;
     contactPerson?: string;
     supplierPhone?: string;
@@ -18,44 +19,46 @@ export const stockService = {
     
     let supplierId: string | undefined = undefined;
 
-    // LOGIC: Auto-create Supplier if name is provided and doesn't exist
+    // --- AUTO-SAVE SUPPLIER LOGIC ---
     if (details.supplierName && details.organizationId) {
-      // 1. Check if supplier exists
+      // 1. Check if supplier already exists (Case insensitive)
       const { data: existing, error: fetchError } = await supabase
         .from('suppliers')
         .select('id')
         .eq('organization_id', details.organizationId)
-        .ilike('name', details.supplierName) // Case insensitive match
+        .ilike('name', details.supplierName) 
         .maybeSingle();
 
-      if (fetchError) console.error("Error checking supplier", fetchError);
+      if (fetchError) console.error("Check supplier error", fetchError);
 
       if (existing) {
+        // 2a. Found it! Use existing ID
         supplierId = existing.id;
       } else {
-        // 2. Create new supplier if not found
+        // 2b. Not found. Create new supplier now.
         const { data: newSupplier, error: createError } = await supabase
           .from('suppliers')
           .insert({
             organization_id: details.organizationId,
             name: details.supplierName,
-            contact: details.contactPerson,
-            phone: details.supplierPhone
+            contact: details.contactPerson || null,
+            phone: details.supplierPhone || null
           })
           .select('id')
           .single();
 
         if (createError) {
-          console.error("Error creating supplier", createError);
+          console.error("Create supplier error", createError);
         } else if (newSupplier) {
           supplierId = newSupplier.id;
+          console.log(`✅ Auto-created supplier: ${details.supplierName}`);
         }
       }
     }
 
     const totalCost = (details.unitCost || 0) * details.quantity;
 
-    // 3. Insert Movement
+    // 3. Insert Movement with the ID
     const { data, error } = await supabase
       .from('stock_movements')
       .insert({
@@ -65,7 +68,7 @@ export const stockService = {
         type: 'purchase',
         shift_id: details.shiftId,
         supplier_id: supplierId, // Link the ID
-        // Keep text for historical record
+        // Also save text for history
         supplier_name: details.supplierName,
         supplier_contact: details.contactPerson,
         supplier_phone: details.supplierPhone,
