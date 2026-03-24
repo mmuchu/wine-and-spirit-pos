@@ -51,7 +51,6 @@ export function Sidebar() {
   useEffect(() => {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser();
-      // FIX: Handle undefined email
       if (data.user) setUserEmail(data.user.email ?? null);
     };
     getUser();
@@ -90,6 +89,12 @@ export function Sidebar() {
     setIsShiftModalOpen(false);
     
     if (shiftMode === 'open') {
+      // FIX: Check for organizationId
+      if (!organizationId) {
+        alert("Error: Organization context missing.");
+        return;
+      }
+
       try {
         const newShift = await shiftService.openShift(organizationId, amount);
         setCurrentShift(newShift);
