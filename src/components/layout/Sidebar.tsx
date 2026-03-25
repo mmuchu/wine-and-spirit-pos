@@ -89,9 +89,9 @@ export function Sidebar() {
     setIsShiftModalOpen(false);
     
     if (shiftMode === 'open') {
-      // FIX: Check for organizationId
+      // FIX: Guard clause for organizationId
       if (!organizationId) {
-        alert("Error: Organization context missing.");
+        alert("Organization context missing. Cannot open shift.");
         return;
       }
 
