@@ -1,6 +1,9 @@
  // src/app/reports/stock/page.tsx
 "use client";
 
+// FORCE DYNAMIC: Prevents build error with useSearchParams
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
