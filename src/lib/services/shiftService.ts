@@ -17,7 +17,7 @@ export const shiftService = {
       .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') return null; // No rows found
+      if (error.code === 'PGRST116') return null;
       console.error("Error fetching shift:", error);
       return null;
     }
@@ -29,7 +29,6 @@ export const shiftService = {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Get current stock levels for snapshot
     const { data: products } = await supabase
       .from('products')
       .select('id, stock')
@@ -78,7 +77,6 @@ export const shiftService = {
     return data;
   },
 
-  // FIX: Added missing function
   async getShiftDetails(shiftId: string) {
     const supabase = createClient();
     
@@ -90,6 +88,36 @@ export const shiftService = {
       `)
       .eq('id', shiftId)
       .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // FIX: Added missing getShiftSales
+  async getShiftSales(shiftId: string, openedAt: string) {
+    const supabase = createClient();
+    
+    // Sum of all completed sales for this shift
+    const { data, error } = await supabase
+      .from('sales')
+      .select('total_amount')
+      .eq('shift_id', shiftId)
+      .eq('status', 'completed');
+
+    if (error) throw error;
+
+    const total = data?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+    return total;
+  },
+
+  // Added for stock reconciliation
+  async getStockMovements(shiftId: string) {
+    const supabase = createClient();
+    
+    const { data, error } = await supabase
+      .from('stock_movements')
+      .select('*, products(name)')
+      .eq('shift_id', shiftId);
 
     if (error) throw error;
     return data;
