@@ -29,8 +29,9 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   
+  // Get context and role
   const { organizationId, loading: orgLoading } = useOrganization();
-  const { isManager, isAdmin, isOwner } = useRole();
+  const { isManager, isAdmin, isOwner, userRole } = useRole();
   
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -101,8 +102,7 @@ export function Sidebar() {
         setCurrentShift(newShift);
       } catch (error: any) {
         console.error("Shift error:", error);
-        // FIX: Show actual error message to user
-        alert(error?.message || "Failed to start shift. Check console for details.");
+        alert(error?.message || "Failed to start shift.");
       }
     } else {
       const params = new URLSearchParams({
@@ -215,7 +215,10 @@ export function Sidebar() {
               </div>
               <div className="flex-1 overflow-hidden">
                 <p className="text-xs font-semibold text-gray-700 truncate">{userEmail || "User"}</p>
-                <p className="text-[10px] text-gray-400">Cashier</p>
+                {/* FIX: Dynamic Role Display */}
+                <p className="text-[10px] text-gray-400">
+                  {isOwner ? 'Owner' : (userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : 'User')}
+                </p>
               </div>
             </div>
             <button 
