@@ -2,7 +2,7 @@
 import { useOrganization } from "@/lib/context/OrganizationContext";
 
 export const useRole = () => {
-  // Get loading state from context
+  // Get state from context
   const { userRole, organizationId, loading } = useOrganization();
 
   const isManager = userRole === 'admin' || userRole === 'manager';
@@ -13,4 +13,4 @@ export const useRole = () => {
   const isOwner = organizationId === MASTER_ORG_ID;
 
   return { userRole, isManager, isAdmin, isOwner, loading };
-}
+};
