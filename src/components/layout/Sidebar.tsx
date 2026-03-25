@@ -28,7 +28,9 @@ export function Sidebar() {
   const supabase = createClient();
   const pathname = usePathname();
   const router = useRouter();
-  const { organizationId } = useOrganization();
+  
+  // FIX: Get loading state from context
+  const { organizationId, loading: orgLoading } = useOrganization();
   const { isManager, isAdmin } = useRole();
   
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -89,7 +91,7 @@ export function Sidebar() {
     setIsShiftModalOpen(false);
     
     if (shiftMode === 'open') {
-      // FIX: Guard clause for organizationId
+      // Guard clause for organizationId
       if (!organizationId) {
         alert("Organization context missing. Cannot open shift.");
         return;
@@ -190,20 +192,24 @@ export function Sidebar() {
                <div>
                   <p className="text-[10px] font-semibold text-gray-400 uppercase">Shift Status</p>
                   <p className={`text-sm font-bold mt-0.5 ${currentShift ? 'text-emerald-500' : 'text-gray-400'}`}>
-                    {currentShift ? 'Active' : 'Closed'}
+                    {/* FIX: Show Loading state */}
+                    {orgLoading ? 'Loading...' : (currentShift ? 'Active' : 'Closed')}
                   </p>
                </div>
                <div className={`w-3 h-3 rounded-full shadow-inner ${currentShift ? 'bg-emerald-400 animate-pulse' : 'bg-gray-300'}`}></div>
             </div>
             <button 
                onClick={handleShiftAction}
+               {/* FIX: Disable button if loading or no organizationId */}
+               disabled={orgLoading || !organizationId}
                className={`w-full py-2 rounded-lg text-xs font-bold transition-colors ${
                  currentShift 
                    ? 'bg-red-50 text-red-600 hover:bg-red-100' 
                    : 'bg-black text-white hover:bg-gray-800'
-               }`}
+               } disabled:bg-gray-100 disabled:text-gray-400`}
              >
-               {currentShift ? 'Close Shift' : 'Start Shift'}
+               {/* FIX: Update button text */}
+               {orgLoading ? 'Initializing...' : (currentShift ? 'Close Shift' : 'Start Shift')}
              </button>
           </div>
 
