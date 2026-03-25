@@ -7,15 +7,23 @@ import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
 import { formatCurrency } from "@/components/pos/utils";
 
+type ActivityEvent = {
+  id: string;
+  time: string;
+  type: 'sale' | 'expense' | 'stock' | 'shift_open' | 'shift_close';
+  description: string;
+  amount?: number;
+  meta?: string;
+  icon: string;
+};
+
 export default function AuditPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
 
   const [loading, setLoading] = useState(true);
   const [shift, setShift] = useState<any>(null);
-  const [sales, setSales] = useState<any[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [stockMovements, setStockMovements] = useState<any[]>([]);
+  const [activities, setActivities] = useState<ActivityEvent[]>([]);
 
   useEffect(() => {
     if (organizationId) loadAuditData();
@@ -33,27 +41,91 @@ export default function AuditPage() {
         return;
       }
 
-      // 2. Fetch Sales for this Shift
-      const { data: salesData } = await supabase
-        .from('sales')
-        .select('*')
-        .eq('shift_id', currentShift.id)
-        .eq('status', 'completed');
-      setSales(salesData || []);
+      // 2. Fetch All Data in Parallel
+      const [salesRes, expensesRes, stockRes] = await Promise.all([
+        // Fetch Sales
+        supabase
+          .from('sales')
+          .select('id, created_at, total_amount, payment_method, status, items')
+          .eq('shift_id', currentShift.id)
+          .order('created_at', { ascending: false }),
+        // Fetch Expenses
+        supabase
+          .from('expenses')
+          .select('id, created_at, amount, category, description')
+          .eq('shift_id', currentShift.id)
+          .order('created_at', { ascending: false }),
+        // Fetch Stock Movements
+        supabase
+          .from('stock_movements')
+          .select('id, created_at, quantity, type, total_cost, notes, products(name)')
+          .eq('shift_id', currentShift.id)
+          .order('created_at', { ascending: false }),
+      ]);
 
-      // 3. Fetch Expenses for this Shift
-      const { data: expensesData } = await supabase
-        .from('expenses')
-        .select('*')
-        .eq('shift_id', currentShift.id);
-      setExpenses(expensesData || []);
+      const sales = salesRes.data || [];
+      const expenses = expensesRes.data || [];
+      const stock = stockRes.data || [];
 
-      // 4. Fetch Stock Movements (Purchases) for this Shift
-      const { data: movements } = await supabase
-        .from('stock_movements')
-        .select('*, products(name)')
-        .eq('shift_id', currentShift.id);
-      setStockMovements(movements || []);
+      // 3. Map to Activity Events
+      const events: ActivityEvent[] = [];
+
+      // Shift Open Event
+      events.push({
+        id: `shift-${currentShift.id}-open`,
+        time: currentShift.opened_at,
+        type: 'shift_open',
+        description: `Shift Started`,
+        amount: currentShift.opening_cash,
+        meta: `Opening Cash`,
+        icon: '🟢'
+      });
+
+      // Sales Events
+      sales.forEach(s => {
+        const itemCount = s.items?.length || 0;
+        events.push({
+          id: s.id,
+          time: s.created_at,
+          type: 'sale',
+          description: `SALE (${s.payment_method.toUpperCase()}) - ${itemCount} items`,
+          amount: s.total_amount,
+          meta: s.status,
+          icon: '💰'
+        });
+      });
+
+      // Expense Events
+      expenses.forEach(e => {
+        events.push({
+          id: e.id,
+          time: e.created_at,
+          type: 'expense',
+          description: `EXPENSE - ${e.category || 'General'}`,
+          amount: e.amount,
+          meta: e.description,
+          icon: '💸'
+        });
+      });
+
+      // Stock Events
+      stock.forEach(m => {
+        const productName = (m.products as any)?.name || 'Unknown Product';
+        events.push({
+          id: m.id,
+          time: m.created_at,
+          type: 'stock',
+          description: `STOCK ${m.type.toUpperCase()} - ${productName}`,
+          amount: m.total_cost || 0,
+          meta: `Qty: ${m.quantity} ${m.notes ? `(${m.notes})` : ''}`,
+          icon: m.type === 'purchase' ? '📦' : '📝'
+        });
+      });
+
+      // 4. Sort by Time (Newest First)
+      events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+      setActivities(events);
 
     } catch (err) {
       console.error("Audit error", err);
@@ -62,157 +134,78 @@ export default function AuditPage() {
     }
   };
 
-  if (loading) return <div className="p-8">Loading Audit...</div>;
-  if (!shift) return <div className="p-8">No active shift found.</div>;
+  const formatTime = (dateStr: string) => {
+    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
-  // CALCULATIONS
-  const totalSales = sales.reduce((sum, s) => sum + (s.total_amount || 0), 0);
-  const totalCashSales = sales.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + (s.total_amount || 0), 0);
-  const totalMpesaSales = sales.filter(s => s.payment_method === 'mpesa').reduce((sum, s) => sum + (s.total_amount || 0), 0);
-  
-  const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  
-  const openingCash = shift.opening_cash || 0;
-  
-  // Expected Cash = Opening + Cash Sales - Expenses
-  const expectedCash = openingCash + totalCashSales - totalExpenses;
-
-  const stockPurchases = stockMovements.filter(m => m.type === 'purchase');
-  const totalStockCost = stockPurchases.reduce((sum, m) => sum + (m.total_cost || 0), 0);
+  if (loading) return <div className="p-8">Loading Activity Log...</div>;
+  if (!shift) return <div className="p-8 text-center space-y-4">
+    <h2 className="text-xl font-bold">No Active Shift</h2>
+    <p className="text-gray-500">Start a shift to see the daily audit trail.</p>
+  </div>;
 
   return (
-    <div className="p-6 lg:p-8 space-y-8 max-w-5xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
       
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Daily Audit</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Daily Audit Trail</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Shift started: {new Date(shift.opened_at).toLocaleString()}
+            Real-time log of all system activities for this shift.
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-400 uppercase font-bold">Opening Cash</p>
-          <p className="text-xl font-bold text-gray-800">{formatCurrency(openingCash)}</p>
+        <div className="text-right bg-gray-50 p-3 rounded-lg border">
+          <p className="text-xs text-gray-400 uppercase font-bold">Shift Started</p>
+          <p className="text-sm font-bold text-gray-800">{new Date(shift.opened_at).toLocaleString()}</p>
         </div>
       </div>
 
-      {/* MAIN SUMMARY */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Sales Summary */}
-        <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
-          <h2 className="font-bold text-gray-600 uppercase text-xs tracking-wider">Sales Summary</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span>Total Sales</span>
-              <span className="font-bold">{formatCurrency(totalSales)}</span>
-            </div>
-            <div className="flex justify-between text-green-600">
-              <span>Cash Sales</span>
-              <span className="font-bold">{formatCurrency(totalCashSales)}</span>
-            </div>
-            <div className="flex justify-between text-purple-600">
-              <span>M-Pesa Sales</span>
-              <span className="font-bold">{formatCurrency(totalMpesaSales)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Expenses Summary */}
-        <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
-          <h2 className="font-bold text-gray-600 uppercase text-xs tracking-wider">Expenses Summary</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between text-red-600">
-              <span>Total Expenses</span>
-              <span className="font-bold">- {formatCurrency(totalExpenses)}</span>
-            </div>
-            <div className="pt-2 text-xs text-gray-400 border-t">
-              {expenses.length} expense(s) recorded
-            </div>
-          </div>
-        </div>
-
-        {/* Cash Position */}
-        <div className="bg-black text-white rounded-xl shadow-lg p-6 space-y-4">
-          <h2 className="font-bold text-gray-300 uppercase text-xs tracking-wider">Expected Cash</h2>
-          <div className="text-3xl font-extrabold">
-            {formatCurrency(expectedCash)}
-          </div>
-          <div className="text-[10px] text-gray-400 space-y-1 border-t border-gray-700 pt-2 mt-2">
-             <p><span className="font-bold text-gray-200">Calculation:</span></p>
-             <p>Opening ({formatCurrency(openingCash)}) + Cash Sales ({formatCurrency(totalCashSales)}) - Expenses ({formatCurrency(totalExpenses)})</p>
-          </div>
-        </div>
-
-      </div>
-
-      {/* DETAILED EXPENSES TABLE */}
+      {/* Activity Timeline */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="p-4 border-b bg-gray-50">
-          <h2 className="font-bold text-gray-800">Expense Details</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="p-3 text-left">Time</th>
-                <th className="p-3 text-left">Category</th>
-                <th className="p-3 text-left">Description</th>
-                <th className="p-3 text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {expenses.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center text-gray-400">No expenses recorded this shift.</td>
-                </tr>
-              ) : (
-                expenses.map((exp) => (
-                  <tr key={exp.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-gray-600">{new Date(exp.created_at).toLocaleTimeString()}</td>
-                    <td className="p-3 font-medium text-gray-800">{exp.category || 'General'}</td>
-                    <td className="p-3 text-gray-500">{exp.description || '-'}</td>
-                    <td className="p-3 text-right font-bold text-red-600">- {formatCurrency(exp.amount)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <div className="divide-y divide-gray-100">
 
-      {/* DETAILED STOCK PURCHASES */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="p-4 border-b bg-gray-50">
-          <h2 className="font-bold text-gray-800">Stock Purchases (Cash Out)</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="p-3 text-left">Time</th>
-                <th className="p-3 text-left">Product</th>
-                <th className="p-3 text-right">Qty</th>
-                <th className="p-3 text-right">Cost</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {stockPurchases.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center text-gray-400">No stock purchases recorded.</td>
-                </tr>
-              ) : (
-                stockPurchases.map((mov) => (
-                  <tr key={mov.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-gray-600">{new Date(mov.created_at).toLocaleTimeString()}</td>
-                    <td className="p-3 font-medium">{mov.products?.name || 'Unknown'}</td>
-                    <td className="p-3 text-right">{mov.quantity}</td>
-                    <td className="p-3 text-right font-bold text-orange-600">- {formatCurrency(mov.total_cost || 0)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          {activities.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">
+              No activities recorded yet.
+            </div>
+          ) : (
+            activities.map((act) => (
+              <div key={act.id} className="flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors">
+                
+                {/* Icon & Line */}
+                <div className="flex flex-col items-center">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">
+                    {act.icon}
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline">
+                    <p className="font-bold text-gray-900">{act.description}</p>
+                    {act.amount !== undefined && act.amount > 0 && (
+                      <p className={`font-mono font-bold text-sm ${
+                        act.type === 'expense' ? 'text-red-600' : 
+                        act.type === 'sale' ? 'text-green-600' : 'text-gray-600'
+                      }`}>
+                        {act.type === 'expense' ? '-' : '+'}{formatCurrency(act.amount)}
+                      </p>
+                    )}
+                  </div>
+                  
+                  {act.meta && (
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">{act.meta}</p>
+                  )}
+                  
+                  <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">
+                    {formatTime(act.time)}
+                  </p>
+                </div>
+
+              </div>
+            ))
+          )}
+
         </div>
       </div>
 
