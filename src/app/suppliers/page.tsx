@@ -4,24 +4,25 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
-import { SupplierFormModal } from "@/components/suppliers/SupplierFormModal";
 
 export default function SuppliersPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-  
-  const [suppliers, setSuppliers] = useState<any[]>([]);
+
   const [loading, setLoading] = useState(true);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSupplier, setEditingSupplier] = useState<any>(null);
+  // Form State
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [contact, setContact] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (organizationId) fetchSuppliers();
+    if (organizationId) loadSuppliers();
   }, [organizationId]);
 
-  const fetchSuppliers = async () => {
-    if (!organizationId) return;
+  const loadSuppliers = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -29,7 +30,7 @@ export default function SuppliersPage() {
         .select('*')
         .eq('organization_id', organizationId)
         .order('name');
-      
+
       if (error) throw error;
       setSuppliers(data || []);
     } catch (err) {
@@ -39,54 +40,112 @@ export default function SuppliersPage() {
     }
   };
 
-  const handleOpenModal = (supplier?: any) => {
-    setEditingSupplier(supplier || null);
-    setIsModalOpen(true);
+  const handleAddSupplier = async () => {
+    if (!name) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('suppliers').insert({
+        organization_id: organizationId,
+        name: name,
+        phone: phone,
+        contact: contact
+      });
+
+      if (error) throw error;
+      
+      setName("");
+      setPhone("");
+      setContact("");
+      loadSuppliers();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
+  if (loading) return <div className="p-8">Loading suppliers...</div>;
+
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Supplier Management</h1>
-          <p className="text-gray-500 text-sm mt-1">Manage your vendors and distributors.</p>
+    <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-8">
+      
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Supplier Management</h1>
+        <p className="text-sm text-gray-500 mt-1">Manage your vendors and distributors.</p>
+      </div>
+
+      {/* Add Form */}
+      <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
+        <h2 className="font-bold text-lg border-b pb-2">Add New Supplier</h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Supplier Name *</label>
+            <input 
+              type="text" 
+              value={name} 
+              onChange={(e) => setName(e.target.value)} 
+              className="w-full p-3 border rounded-lg" 
+              placeholder="e.g., Coca Cola Ltd"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Phone</label>
+            <input 
+              type="text" 
+              value={phone} 
+              onChange={(e) => setPhone(e.target.value)} 
+              className="w-full p-3 border rounded-lg" 
+              placeholder="0722 000 000"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Contact Person</label>
+            <input 
+              type="text" 
+              value={contact} 
+              onChange={(e) => setContact(e.target.value)} 
+              className="w-full p-3 border rounded-lg" 
+              placeholder="John Doe"
+            />
+          </div>
         </div>
+
         <button 
-          onClick={() => handleOpenModal()}
-          className="px-6 py-2.5 bg-black text-white rounded-lg text-sm font-bold hover:bg-gray-800 shadow-lg"
+          onClick={handleAddSupplier}
+          disabled={saving || !name}
+          className="px-6 py-2 bg-black text-white rounded-lg font-bold disabled:bg-gray-300"
         >
-          + Add Supplier
+          {saving ? "Saving..." : "Add Supplier"}
         </button>
       </div>
 
+      {/* List */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="text-left p-4 font-semibold">Name</th>
-              <th className="text-left p-4 font-semibold">Contact</th>
-              <th className="text-left p-4 font-semibold">Phone</th>
-              <th className="text-right p-4 font-semibold">Actions</th>
+              <th className="p-4 text-left font-bold">Name</th>
+              <th className="p-4 text-left font-bold">Contact</th>
+              <th className="p-4 text-left font-bold">Phone</th>
+              <th className="p-4 text-left font-bold">Added</th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {loading ? (
-              <tr><td colSpan={4} className="p-8 text-center text-gray-400">Loading...</td></tr>
-            ) : suppliers.length === 0 ? (
-              <tr><td colSpan={4} className="p-8 text-center text-gray-400">No suppliers found. Click "+ Add Supplier" to begin.</td></tr>
+            {suppliers.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="p-8 text-center text-gray-400">
+                  No suppliers found. Add one above or create via Inventory Purchase.
+                </td>
+              </tr>
             ) : (
               suppliers.map((s) => (
                 <tr key={s.id} className="hover:bg-gray-50">
                   <td className="p-4 font-medium">{s.name}</td>
-                  <td className="p-4 text-gray-600">{s.contact || '-'}</td>
-                  <td className="p-4 text-gray-600">{s.phone || '-'}</td>
-                  <td className="p-4 text-right">
-                    <button 
-                      onClick={() => handleOpenModal(s)}
-                      className="text-blue-600 hover:underline text-xs font-bold"
-                    >
-                      Edit
-                    </button>
+                  <td className="p-4 text-gray-500">{s.contact || '-'}</td>
+                  <td className="p-4 text-gray-500">{s.phone || '-'}</td>
+                  <td className="p-4 text-gray-400 text-xs">
+                    {new Date(s.created_at).toLocaleDateString()}
                   </td>
                 </tr>
               ))
@@ -95,12 +154,6 @@ export default function SuppliersPage() {
         </table>
       </div>
 
-      <SupplierFormModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchSuppliers}
-        supplier={editingSupplier}
-      />
     </div>
   );
 }
