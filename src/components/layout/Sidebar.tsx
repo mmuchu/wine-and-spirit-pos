@@ -29,7 +29,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   
-  // Get context and role
   const { organizationId, loading: orgLoading } = useOrganization();
   const { isManager, isAdmin, isOwner } = useRole();
   
@@ -40,23 +39,16 @@ export function Sidebar() {
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open');
 
-  // Filter Navigation based on Role
+  // Filter Navigation
   const visibleNavigation = navigation.filter(item => {
-    // Owner sees everything
     if (isOwner) return true;
-    
-    // Admins see everything
     if (isAdmin) return true;
-
-    // Hide Admin-only items from non-admins
     if (item.adminOnly && !isAdmin) return false;
-
-    // Hide Manager-only items from non-managers
     if (item.managerOnly && !isManager) return false;
-
     return true;
   });
 
+  // Fetch User Email ONCE on mount
   useEffect(() => {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser();
@@ -65,9 +57,10 @@ export function Sidebar() {
     getUser();
   }, [supabase]);
 
+  // Check Shift Status ONLY when organizationId changes (not on every page click)
   useEffect(() => {
     if (organizationId) checkActiveShift();
-  }, [pathname, organizationId]);
+  }, [organizationId]);
 
   const checkActiveShift = async () => {
     try {
@@ -98,10 +91,7 @@ export function Sidebar() {
     setIsShiftModalOpen(false);
     
     if (shiftMode === 'open') {
-      if (!organizationId) {
-        alert("Organization context missing.");
-        return;
-      }
+      if (!organizationId) return;
 
       try {
         const newShift = await shiftService.openShift(organizationId, amount);
@@ -147,12 +137,7 @@ export function Sidebar() {
       )}
 
       {/* Sidebar */}
-      <aside className={`
-        fixed top-0 left-0 z-50 h-full w-72 bg-white border-r border-gray-200
-        transform transition-transform duration-300 ease-in-out
-        ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0 lg:shadow-none flex flex-col
-      `}>
+      <aside className="fixed top-0 left-0 z-50 h-screen w-72 bg-white border-r border-gray-200 flex flex-col">
         {/* Logo Area */}
         <div className="h-16 flex items-center px-6 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
@@ -166,8 +151,8 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {/* Navigation - FIX: Added min-h-0 for proper scroll */}
+        <nav className="flex-1 min-h-0 p-4 space-y-1 overflow-y-auto">
           {visibleNavigation.map((item) => {
             const isActive = pathname === item.href;
             
@@ -191,7 +176,7 @@ export function Sidebar() {
         </nav>
 
         {/* Bottom Section */}
-        <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+        <div className="p-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
           {/* Shift Widget */}
           <div className="mb-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
             <div className="flex justify-between items-center mb-3">
