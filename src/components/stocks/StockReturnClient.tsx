@@ -83,26 +83,21 @@ export function StockReturnClient() {
     finally { setProcessing(false); }
   };
 
-  if (loading) return <div className="p-8">Calculating Stock Data...</div>;
-  if (!shift) return <div className="p-8 text-center space-y-4"><h2 className="text-xl font-bold">No Active Shift</h2></div>;
+  if (loading) return <div className="p-8">Calculating...</div>;
+  if (!shift) return <div className="p-8 text-center"><h2 className="text-xl font-bold">No Active Shift</h2></div>;
   
   const cashVariance = closingCash - expectedCash;
 
   return (
     <div className="p-6 lg:p-8 max-w-full mx-auto space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Daily Stock Return</h1>
-          <p className="text-sm text-gray-500 mt-1">Opened: {new Date(shift.opened_at).toLocaleString()}</p>
-        </div>
-      </div>
-
-      {/* CASH RECONCILIATION */}
+      <h1 className="text-2xl font-bold text-gray-900">Daily Stock Return</h1>
+      
+      {/* CASH */}
       <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
         <h2 className="font-bold text-lg border-b pb-2">Cash Reconciliation</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm font-bold">
-          <div className="p-2 bg-gray-50 rounded"><p className="text-gray-500 font-normal text-xs">Opening</p><p className="text-base">{formatCurrency(shift.opening_cash || 0)}</p></div>
-          <div className="p-2 bg-gray-50 rounded"><p className="text-gray-500 font-normal text-xs">Sales</p><p className="text-base">{formatCurrency(expectedCash - (shift.opening_cash || 0))}</p></div>
+        <div className="grid grid-cols-4 gap-4 text-center text-sm font-bold">
+          <div className="p-2 bg-gray-50 rounded"><p className="text-gray-500 font-normal text-xs">Opening</p><p>{formatCurrency(shift.opening_cash || 0)}</p></div>
+          <div className="p-2 bg-gray-50 rounded"><p className="text-gray-500 font-normal text-xs">Sales</p><p>{formatCurrency(expectedCash - (shift.opening_cash || 0))}</p></div>
           <div className="p-2 bg-blue-50 rounded text-blue-800"><p className="font-normal text-xs">Expected</p><p className="text-lg">{formatCurrency(expectedCash)}</p></div>
           <div className="p-2 bg-green-50 rounded text-green-800">
             <p className="font-normal text-xs">Actual</p>
@@ -110,27 +105,22 @@ export function StockReturnClient() {
           </div>
         </div>
         <div className={`p-3 rounded text-center font-bold ${Math.abs(cashVariance) > 10 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-          Cash Variance: {cashVariance >= 0 ? '+' : ''}{formatCurrency(cashVariance)}
+          Variance: {cashVariance >= 0 ? '+' : ''}{formatCurrency(cashVariance)}
         </div>
       </div>
 
-      {/* STOCK RECONCILIATION */}
+      {/* STOCK */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="p-4 border-b bg-gray-50">
-          <h2 className="font-bold text-gray-800">Stock Reconciliation</h2>
-          <p className="text-xs text-gray-500">Opening + Purchases - Sales = Expected. Variance = Actual - Expected.</p>
-        </div>
+        <div className="p-4 border-b bg-gray-50"><h2 className="font-bold text-gray-800">Stock Reconciliation</h2></div>
         <div className="overflow-x-auto max-h-96">
           <table className="w-full text-xs">
             <thead className="bg-gray-100 sticky top-0">
-              <tr className="text-gray-600">
-                <th className="p-2 text-left sticky left-0 bg-gray-100 z-10 min-w-[150px]">Product</th>
-                <th className="p-2 text-center">Opening</th>
-                <th className="p-2 text-center">Purchases</th>
-                <th className="p-2 text-center">Sales</th>
-                <th className="p-2 text-center font-bold text-blue-700 bg-blue-50 border-x">Expected</th>
+              <tr>
+                <th className="p-2 text-left sticky left-0 bg-gray-100 z-10">Product</th>
+                <th className="p-2 text-center">Op</th><th className="p-2 text-center">Purch</th><th className="p-2 text-center">Sales</th>
+                <th className="p-2 text-center font-bold text-blue-700 bg-blue-50">Exp</th>
                 <th className="p-2 text-center font-bold text-green-700 bg-green-50">Actual</th>
-                <th className="p-2 text-center font-bold text-red-700 bg-red-50">Variance</th>
+                <th className="p-2 text-center font-bold text-red-700 bg-red-50">Var</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -140,13 +130,9 @@ export function StockReturnClient() {
                   <td className="p-2 text-center text-gray-500">{r.opening}</td>
                   <td className="p-2 text-center text-gray-500">{r.purchases}</td>
                   <td className="p-2 text-center text-gray-500">{r.sales}</td>
-                  <td className="p-2 text-center font-bold bg-blue-50 border-x">{r.expected}</td>
-                  <td className="p-1 bg-green-50">
-                    <input type="number" value={r.actual} onChange={(e) => handleActualChange(r.productId, e.target.value)} className="w-full p-1 border rounded text-center font-bold bg-white" />
-                  </td>
-                  <td className={`p-2 text-center font-bold ${r.variance === 0 ? 'bg-red-50 text-gray-400' : (r.variance > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}`}>
-                    {r.variance > 0 ? '+' : ''}{r.variance}
-                  </td>
+                  <td className="p-2 text-center font-bold bg-blue-50">{r.expected}</td>
+                  <td className="p-1 bg-green-50"><input type="number" value={r.actual} onChange={(e) => handleActualChange(r.productId, e.target.value)} className="w-full p-1 border rounded text-center font-bold bg-white" /></td>
+                  <td className={`p-2 text-center font-bold ${r.variance === 0 ? 'text-gray-400' : (r.variance > 0 ? 'text-green-600' : 'text-red-600')}`}>{r.variance > 0 ? '+' : ''}{r.variance}</td>
                 </tr>
               ))}
             </tbody>
@@ -156,10 +142,7 @@ export function StockReturnClient() {
 
       {/* CLOSE */}
       <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Notes / Explanations</label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 border rounded-lg text-sm" rows={2} />
-        </div>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 border rounded-lg text-sm" rows={2} placeholder="Notes..." />
         <button onClick={handleCloseShift} disabled={processing} className="w-full py-4 bg-red-600 text-white rounded-xl font-bold text-lg hover:bg-red-700 disabled:bg-gray-300">
           {processing ? "Processing..." : "Submit & Close Shift"}
         </button>
