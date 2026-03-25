@@ -7,7 +7,6 @@ export const stockService = {
     quantity: number;
     organizationId: string;
     shiftId?: string;
-    // Text fields from Inventory
     supplierName?: string;
     contactPerson?: string;
     supplierPhone?: string;
@@ -29,10 +28,11 @@ export const stockService = {
         .ilike('name', details.supplierName) 
         .maybeSingle();
 
-      if (fetchError) console.error("Check supplier error", fetchError);
+      if (fetchError) {
+        console.error("Check supplier error", fetchError);
+      }
 
       if (existing) {
-        // 2a. Found it! Use existing ID
         supplierId = existing.id;
       } else {
         // 2b. Not found. Create new supplier now.
@@ -48,7 +48,8 @@ export const stockService = {
           .single();
 
         if (createError) {
-          console.error("Create supplier error", createError);
+          // IMPROVED LOGGING
+          console.error("Create supplier error", JSON.stringify(createError, null, 2));
         } else if (newSupplier) {
           supplierId = newSupplier.id;
           console.log(`✅ Auto-created supplier: ${details.supplierName}`);
@@ -67,8 +68,7 @@ export const stockService = {
         quantity: details.quantity,
         type: 'purchase',
         shift_id: details.shiftId,
-        supplier_id: supplierId, // Link the ID
-        // Also save text for history
+        supplier_id: supplierId,
         supplier_name: details.supplierName,
         supplier_contact: details.contactPerson,
         supplier_phone: details.supplierPhone,

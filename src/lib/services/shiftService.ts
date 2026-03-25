@@ -27,23 +27,35 @@ export const shiftService = {
 
   async openShift(organizationId: string, openingCash: number = 0) {
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    
+    // 1. Get User
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      throw new Error("User not authenticated.");
+    }
 
-    const { data: products } = await supabase
+    // 2. Get current stock levels for snapshot
+    const { data: products, error: prodError } = await supabase
       .from('products')
       .select('id, stock')
       .eq('organization_id', organizationId);
+
+    if (prodError) {
+      console.error("Product fetch error:", prodError);
+      throw new Error(`Failed to fetch products: ${prodError.message}`);
+    }
 
     const stockSnapshot: Record<string, number> = {};
     products?.forEach(p => {
       if (p.id) stockSnapshot[p.id] = p.stock || 0;
     });
 
+    // 3. Insert Shift
     const { data, error } = await supabase
       .from('shifts')
       .insert({
         organization_id: organizationId,
-        opened_by: user?.id,
+        opened_by: user.id,
         opening_cash: openingCash,
         opening_stock: stockSnapshot,
         status: 'active'
@@ -51,7 +63,11 @@ export const shiftService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Supabase Insert Error:", JSON.stringify(error, null, 2));
+      throw new Error(`Database Error: ${error.message}`);
+    }
+
     return data;
   },
 
@@ -93,7 +109,6 @@ export const shiftService = {
     return data;
   },
 
-  // FIX: Added missing getShiftSales
   async getShiftSales(shiftId: string, openedAt: string) {
     const supabase = createClient();
     
