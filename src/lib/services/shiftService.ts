@@ -11,16 +11,14 @@ export const shiftService = {
       .from('shifts')
       .select('*')
       .eq('organization_id', organizationId)
-      .is('closed_at', null) // Only get open shifts
+      .is('closed_at', null)
       .order('opened_at', { ascending: false })
       .limit(1)
-      .maybeSingle(); // Use maybeSingle to avoid error if no rows
+      .maybeSingle();
 
     if (error) {
-      // Only log real errors, ignore "no rows" which is expected
-      if (error.code !== 'PGRST116') {
-        console.error("Error fetching shift:", error);
-      }
+      if (error.code === 'PGRST116') return null; // No rows found
+      console.error("Error fetching shift:", error);
       return null;
     }
     
@@ -74,6 +72,23 @@ export const shiftService = {
       })
       .eq('id', shiftId)
       .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // FIX: Added missing function
+  async getShiftDetails(shiftId: string) {
+    const supabase = createClient();
+    
+    const { data, error } = await supabase
+      .from('shifts')
+      .select(`
+        *,
+        profiles ( full_name )
+      `)
+      .eq('id', shiftId)
       .single();
 
     if (error) throw error;
