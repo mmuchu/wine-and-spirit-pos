@@ -4,6 +4,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+// Define the type correctly
 interface OrgContextType {
   organizationId: string | null;
   userRole: string | null;
@@ -35,19 +36,16 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // --- MASTER USER OVERRIDE (Force Admin for You) ---
+        // MASTER USER OVERRIDE
         const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
-        
         if (user.id === MASTER_USER_ID) {
-          console.log("✅ AUDIT: Master User detected. Forcing Admin Role.");
           setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
           setUserRole('admin');
           setLoading(false);
           return;
         }
 
-        // --- Normal Flow for other users ---
-        // 1. Check Metadata
+        // Normal Flow
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role || 'cashier';
         
@@ -55,7 +53,6 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           setOrganizationId(orgId);
           setUserRole(role);
         } else {
-          // 2. Fallback: Database
           const { data: member } = await supabase
             .from('organization_members')
             .select('organization_id, role')
@@ -65,15 +62,10 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           if (member?.organization_id) {
             setOrganizationId(member.organization_id);
             setUserRole(member.role || 'cashier');
-          } else {
-            setOrganizationId(null);
-            setUserRole(null);
           }
         }
       } catch (err) {
         console.error("Error loading organization", err);
-        setOrganizationId(null);
-        setUserRole(null);
       } finally {
         setLoading(false);
       }
