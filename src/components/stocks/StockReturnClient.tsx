@@ -1,27 +1,14 @@
- // src/app/reports/stock/page.tsx
+ // src/components/stock/StockReturnClient.tsx
 "use client";
 
-// Force dynamic rendering to prevent build errors
-export const dynamic = 'force-dynamic';
-
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
 import { formatCurrency } from "@/components/pos/utils";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// --- Main Page Wrapper ---
-export default function StockReturnPage() {
-  return (
-    <Suspense fallback={<div className="p-8">Loading...</div>}>
-      <StockReturnContent />
-    </Suspense>
-  );
-}
-
-// --- Core Logic Component ---
-function StockReturnContent() {
+export function StockReturnClient() {
   const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -29,7 +16,6 @@ function StockReturnContent() {
 
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  
   const [shift, setShift] = useState<any>(null);
   const [stockRows, setStockRows] = useState<any[]>([]);
   const [closingCash, setClosingCash] = useState(0);
