@@ -4,7 +4,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-// Define the type correctly
 interface OrgContextType {
   organizationId: string | null;
   userRole: string | null;
@@ -36,7 +35,10 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // MASTER USER OVERRIDE
+        // ==================================================
+        // MASTER USER HARDCODE (LIVE FIX)
+        // This ensures YOU are always Admin on Live
+        // ==================================================
         const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
         if (user.id === MASTER_USER_ID) {
           setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
@@ -45,9 +47,9 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // Normal Flow
+        // Normal Flow for other users
         const orgId = user.user_metadata?.organization_id;
-        const role = user.user_metadata?.role || 'cashier';
+        const role = user.user_metadata?.role || 'cashier'; 
         
         if (orgId) {
           setOrganizationId(orgId);
