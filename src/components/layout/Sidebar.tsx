@@ -30,7 +30,7 @@ export function Sidebar() {
   const router = useRouter();
   
   const { organizationId, loading: orgLoading } = useOrganization();
-  const { isManager, isAdmin, isOwner } = useRole();
+  const { isManager, isAdmin, isOwner, userRole } = useRole();
   
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -42,13 +42,12 @@ export function Sidebar() {
   // Filter Navigation
   const visibleNavigation = navigation.filter(item => {
     if (isOwner) return true;
-    if (isAdmin) return true;
+    if (isAdmin) return true; // Admins see all
     if (item.adminOnly && !isAdmin) return false;
     if (item.managerOnly && !isManager) return false;
     return true;
   });
 
-  // Fetch User Email ONCE on mount
   useEffect(() => {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser();
@@ -57,7 +56,6 @@ export function Sidebar() {
     getUser();
   }, [supabase]);
 
-  // Check Shift Status ONLY when organizationId changes (not on every page click)
   useEffect(() => {
     if (organizationId) checkActiveShift();
   }, [organizationId]);
@@ -92,7 +90,6 @@ export function Sidebar() {
     
     if (shiftMode === 'open') {
       if (!organizationId) return;
-
       try {
         const newShift = await shiftService.openShift(organizationId, amount);
         setCurrentShift(newShift);
@@ -138,6 +135,7 @@ export function Sidebar() {
 
       {/* Sidebar */}
       <aside className="fixed top-0 left-0 z-50 h-screen w-72 bg-white border-r border-gray-200 flex flex-col">
+        
         {/* Logo Area */}
         <div className="h-16 flex items-center px-6 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
@@ -151,11 +149,10 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Navigation - FIX: Added min-h-0 for proper scroll */}
+        {/* Navigation */}
         <nav className="flex-1 min-h-0 p-4 space-y-1 overflow-y-auto">
           {visibleNavigation.map((item) => {
             const isActive = pathname === item.href;
-            
             return (
               <Link
                 key={item.name}
@@ -211,7 +208,8 @@ export function Sidebar() {
               </div>
               <div className="flex-1 overflow-hidden">
                 <p className="text-xs font-semibold text-gray-700 truncate">{userEmail || "User"}</p>
-                <p className="text-[10px] text-gray-400">Cashier</p>
+                {/* AUDIT: Show detected role */}
+                <p className="text-[10px] text-gray-400 uppercase">{userRole || "Loading..."}</p>
               </div>
             </div>
             <button 
@@ -225,7 +223,6 @@ export function Sidebar() {
         </div>
       </aside>
 
-      {/* Modals */}
       <ShiftModal
         isOpen={isShiftModalOpen}
         onClose={() => setIsShiftModalOpen(false)}

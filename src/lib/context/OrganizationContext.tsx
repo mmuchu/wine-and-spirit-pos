@@ -26,15 +26,8 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const loadOrg = async () => {
       try {
-        // Set a timeout to avoid hanging
-        const timeout = setTimeout(() => {
-          if (!organizationId) setLoading(false);
-        }, 2000); // Fail after 2s
-
         const { data: { user } } = await supabase.auth.getUser();
         
-        clearTimeout(timeout);
-
         if (!user) {
           setOrganizationId(null);
           setUserRole(null);
@@ -42,23 +35,27 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // MASTER USER FAILSAFE (Instant for you)
+        // --- MASTER USER OVERRIDE (Force Admin for You) ---
         const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
+        
         if (user.id === MASTER_USER_ID) {
+          console.log("✅ AUDIT: Master User detected. Forcing Admin Role.");
           setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
           setUserRole('admin');
           setLoading(false);
           return;
         }
 
-        // Normal Flow
+        // --- Normal Flow for other users ---
+        // 1. Check Metadata
         const orgId = user.user_metadata?.organization_id;
-        const role = user.user_metadata?.role || 'cashier'; 
+        const role = user.user_metadata?.role || 'cashier';
         
         if (orgId) {
           setOrganizationId(orgId);
           setUserRole(role);
         } else {
+          // 2. Fallback: Database
           const { data: member } = await supabase
             .from('organization_members')
             .select('organization_id, role')
