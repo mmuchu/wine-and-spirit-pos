@@ -1,4 +1,4 @@
- // src/app/reports/stock/page.tsx
+// src/app/reports/stock/page.tsx
 "use client";
 
 // FORCE DYNAMIC: Prevents build error with useSearchParams
