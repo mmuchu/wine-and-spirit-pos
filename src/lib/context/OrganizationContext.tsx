@@ -35,19 +35,17 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // ==================================================
         // MASTER USER HARDCODE (LIVE FIX)
-        // This ensures YOU are always Admin on Live
-        // ==================================================
         const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
         if (user.id === MASTER_USER_ID) {
+          console.log("Master User Detected. Setting Admin.");
           setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
           setUserRole('admin');
           setLoading(false);
           return;
         }
 
-        // Normal Flow for other users
+        // Normal Flow
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role || 'cashier'; 
         
@@ -64,16 +62,27 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           if (member?.organization_id) {
             setOrganizationId(member.organization_id);
             setUserRole(member.role || 'cashier');
+          } else {
+            setOrganizationId(null);
+            setUserRole(null);
           }
         }
       } catch (err) {
         console.error("Error loading organization", err);
+        setOrganizationId(null);
+        setUserRole(null);
       } finally {
         setLoading(false);
       }
     };
 
-    loadOrg();
+    // SAFETY HATCH: Ensure loading ends after 3 seconds no matter what
+    const timeout = setTimeout(() => {
+        console.warn("Org context timeout - forcing load end");
+        setLoading(false);
+    }, 3000);
+
+    loadOrg().then(() => clearTimeout(timeout));
   }, []);
 
   return (
