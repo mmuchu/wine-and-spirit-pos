@@ -97,7 +97,6 @@ export const shiftService = {
   async getShiftSales(shiftId: string, openedAt: string) {
     const supabase = createClient();
     
-    // Sum of all completed sales for this shift
     const { data, error } = await supabase
       .from('sales')
       .select('total_amount')
@@ -110,7 +109,6 @@ export const shiftService = {
     return total;
   },
 
-  // Added for stock reconciliation
   async getStockMovements(shiftId: string) {
     const supabase = createClient();
     
