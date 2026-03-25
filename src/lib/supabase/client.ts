@@ -10,8 +10,6 @@ export const createClient = () =>
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
-        // FIX: Disable locking for dev mode to prevent warnings
-        lock: false 
-      }
+      },
     }
   );
