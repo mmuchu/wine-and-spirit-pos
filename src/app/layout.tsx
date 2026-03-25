@@ -12,15 +12,24 @@ export const metadata: Metadata = {
   description: "Point of Sale System",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" className="h-full">
-      <body className={`${inter.className} h-full bg-gray-50`}>
+    <html lang="en">
+      <body className={`${inter.className} bg-gray-100`}>
         <OrganizationProvider>
+          <div className="flex min-h-screen">
+            {/* Sidebar is fixed on the left */}
             <Sidebar />
-            <main className="lg:pl-72 min-h-screen">
+            
+            {/* Main Content Area - pushes right by width of sidebar (w-72) */}
+            <main className="flex-1 lg:ml-72">
               {children}
             </main>
+          </div>
         </OrganizationProvider>
       </body>
     </html>
