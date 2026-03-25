@@ -4,7 +4,7 @@ export interface Product {
   name: string;
   sku?: string;
   price: number;
-  cost_price?: number; // Optional
+  cost_price?: number; 
   stock: number;
   min_stock?: number;
   category_id?: string;
@@ -35,4 +35,15 @@ export interface SaleItem {
   price: number;
   cost_price?: number;
   quantity: number;
+}
+
+export interface Batch {
+  id: string;
+  organization_id: string;
+  product_id: string;
+  batch_code: string;
+  quantity: number;
+  manufacturing_date?: string;
+  expiry_date?: string;
+  created_at: string;
 }
