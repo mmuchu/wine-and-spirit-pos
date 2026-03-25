@@ -29,7 +29,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   
-  // FIX: Get loading state from context
+  // Get loading state from context
   const { organizationId, loading: orgLoading } = useOrganization();
   const { isManager, isAdmin } = useRole();
   
@@ -91,7 +91,6 @@ export function Sidebar() {
     setIsShiftModalOpen(false);
     
     if (shiftMode === 'open') {
-      // Guard clause for organizationId
       if (!organizationId) {
         alert("Organization context missing. Cannot open shift.");
         return;
@@ -192,7 +191,6 @@ export function Sidebar() {
                <div>
                   <p className="text-[10px] font-semibold text-gray-400 uppercase">Shift Status</p>
                   <p className={`text-sm font-bold mt-0.5 ${currentShift ? 'text-emerald-500' : 'text-gray-400'}`}>
-                    {/* FIX: Show Loading state */}
                     {orgLoading ? 'Loading...' : (currentShift ? 'Active' : 'Closed')}
                   </p>
                </div>
@@ -200,7 +198,6 @@ export function Sidebar() {
             </div>
             <button 
                onClick={handleShiftAction}
-               {/* FIX: Disable button if loading or no organizationId */}
                disabled={orgLoading || !organizationId}
                className={`w-full py-2 rounded-lg text-xs font-bold transition-colors ${
                  currentShift 
@@ -208,7 +205,6 @@ export function Sidebar() {
                    : 'bg-black text-white hover:bg-gray-800'
                } disabled:bg-gray-100 disabled:text-gray-400`}
              >
-               {/* FIX: Update button text */}
                {orgLoading ? 'Initializing...' : (currentShift ? 'Close Shift' : 'Start Shift')}
              </button>
           </div>
