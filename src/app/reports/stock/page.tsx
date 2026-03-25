@@ -1,25 +1,24 @@
  // src/app/reports/stock/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
 import { formatCurrency } from "@/components/pos/utils";
 import { useRouter, useSearchParams } from "next/navigation";
 
-interface StockRow {
-  productId: string;
-  productName: string;
-  opening: number;
-  purchases: number;
-  sales: number;
-  expected: number;
-  actual: number;
-  variance: number;
+// --- Main Page Wrapper with Suspense ---
+export default function StockReturnPage() {
+  return (
+    <Suspense fallback={<div className="p-8">Loading Stock Return...</div>}>
+      <StockReturnContent />
+    </Suspense>
+  );
 }
 
-export default function StockReturnPage() {
+// --- The Actual Component Logic ---
+function StockReturnContent() {
   const supabase = createClient();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -30,7 +29,7 @@ export default function StockReturnPage() {
   
   // Shift Data
   const [shift, setShift] = useState<any>(null);
-  const [stockRows, setStockRows] = useState<StockRow[]>([]);
+  const [stockRows, setStockRows] = useState<any[]>([]);
   
   // Closing Details
   const [closingCash, setClosingCash] = useState(0);
@@ -51,9 +50,10 @@ export default function StockReturnPage() {
       }
       setShift(currentShift);
 
-      // 1. Get Parameters
+      // 1. Get Parameters from URL (Redirected from Sidebar)
       const cashParam = searchParams.get('cash');
       if (cashParam) setClosingCash(parseFloat(cashParam) || 0);
+      
       const noteParam = searchParams.get('notes');
       if (noteParam) setNotes(noteParam);
 
@@ -100,7 +100,7 @@ export default function StockReturnPage() {
       });
 
       // 7. Build Rows
-      const rows: StockRow[] = (products || []).map(p => {
+      const rows: any[] = (products || []).map(p => {
         const open = openingStock[p.id] || 0;
         const purch = purchaseMap[p.id] || 0;
         const sold = salesMap[p.id] || 0;
@@ -159,7 +159,6 @@ export default function StockReturnPage() {
       await shiftService.closeShift(shift.id, closingCash, closingSnapshot, notes);
 
       // 3. Update Product Stock in DB to match Actual
-      // (This is the crucial step that aligns the system)
       const updatePromises = stockRows.map(row => 
         supabase
           .from('products')
