@@ -9,6 +9,7 @@ import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { Product, CartItem } from "@/lib/types";
 import { auditService } from "@/lib/services/auditService";
 import { shiftService } from "@/lib/services/shiftService";
+import { offlineService } from "@/lib/services/offlineService";
 
 export default function POSPage() {
   const supabase = createClient();
@@ -35,6 +36,10 @@ export default function POSPage() {
   const [shopAddress, setShopAddress] = useState("Nairobi, Kenya");
   const [shopPhone, setShopPhone] = useState("");
 
+  // --- OFFLINE STATE ---
+  const [isOnline, setIsOnline] = useState(offlineService.isOnline());
+  const [pendingCount, setPendingCount] = useState(0);
+
   useEffect(() => {
     if (organizationId) {
       fetchProducts();
@@ -42,6 +47,43 @@ export default function POSPage() {
       fetchActiveShift();
     }
   }, [organizationId]);
+
+  // --- OFFLINE EFFECTS ---
+  useEffect(() => {
+    const updateNetworkStatus = () => {
+      const online = navigator.onLine;
+      setIsOnline(online);
+      
+      if (online) {
+        // Just came online, try to sync
+        processQueue();
+      }
+    };
+
+    window.addEventListener("online", updateNetworkStatus);
+    window.addEventListener("offline", updateNetworkStatus);
+
+    // Initial count
+    updatePendingCount();
+
+    return () => {
+      window.removeEventListener("online", updateNetworkStatus);
+      window.removeEventListener("offline", updateNetworkStatus);
+    };
+  }, [organizationId]);
+
+  const updatePendingCount = () => {
+    setPendingCount(offlineService.getQueue().length);
+  };
+
+  const processQueue = async () => {
+    if (!organizationId) return;
+    const result = await offlineService.syncQueue(supabase, organizationId);
+    updatePendingCount();
+    if (result.synced > 0) {
+      fetchProducts(); // Refresh stock from server
+    }
+  };
 
   const fetchActiveShift = async () => {
     if (!organizationId) return;
@@ -159,13 +201,15 @@ export default function POSPage() {
       return;
     }
 
-    // Validation Loop (Fast, just checking local state)
-    for (const item of cart) {
-      const product = products.find((p) => p.id === item.id);
-      if (!product) continue;
-      if (product.stock < item.quantity) {
-        alert(`Insufficient stock for "${item.name}". \nAvailable: ${product.stock}, Requested: ${item.quantity}`);
-        return;
+    // Skip stock validation if offline (optimistic)
+    if (isOnline) {
+      for (const item of cart) {
+        const product = products.find((p) => p.id === item.id);
+        if (!product) continue;
+        if (product.stock < item.quantity) {
+          alert(`Insufficient stock for "${item.name}". \nAvailable: ${product.stock}, Requested: ${item.quantity}`);
+          return;
+        }
       }
     }
 
@@ -173,56 +217,77 @@ export default function POSPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // 1. Insert Sale (Single Request)
-      const { data: sale, error: saleError } = await supabase
-        .from("sales")
-        .insert({
+      const salePayload = {
+        user_id: user?.id,
+        total_amount: total,
+        subtotal: subtotal,
+        tax_amount: tax,
+        payment_method: paymentMethod,
+        status: "completed",
+        shift_id: currentShift.id,
+        items: cart.map((item) => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          cost_price: item.cost_price || 0,
+          quantity: item.quantity,
+        })),
+      };
+
+      let savedSale: any;
+
+      if (isOnline) {
+        // --- ONLINE FLOW ---
+        const { data, error } = await supabase
+          .from("sales")
+          .insert({
+            organization_id: organizationId,
+            ...salePayload
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        savedSale = data;
+
+        // Update Stock in DB
+        const stockPromises = cart.map((item) => {
+          const product = products.find((p) => p.id === item.id);
+          if (product) {
+            return supabase
+              .from("products")
+              .update({ stock: product.stock - item.quantity })
+              .eq("id", item.id);
+          }
+          return Promise.resolve();
+        });
+        await Promise.all(stockPromises);
+
+        auditService.log("SALE_ONLINE", `Sold ${cart.length} items for ${formatCurrency(total)}`, organizationId);
+        
+        fetchProducts(); // Refresh from server
+
+      } else {
+        // --- OFFLINE FLOW ---
+        savedSale = offlineService.queueSale({
           organization_id: organizationId,
-          user_id: user?.id,
-          total_amount: total,
-          subtotal: subtotal,
-          tax_amount: tax,
-          payment_method: paymentMethod,
-          status: paymentMethod === "mpesa" ? "pending" : "completed",
-          shift_id: currentShift.id,
-          items: cart.map((item) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            cost_price: item.cost_price || 0,
-            quantity: item.quantity,
-          })),
-        })
-        .select()
-        .single();
+          ...salePayload
+        });
 
-      if (saleError) throw saleError;
+        // Optimistic UI Update (Update local stock state)
+        setProducts(prev => prev.map(p => {
+          const inCart = cart.find(c => c.id === p.id);
+          if (inCart) {
+            return { ...p, stock: p.stock - inCart.quantity };
+          }
+          return p;
+        }));
 
-      // 2. OPTIMIZED: Parallel Stock Updates
-      // Instead of waiting for each item one by one, we send all updates at once.
-      const stockUpdatePromises = cart.map((item) => {
-        const product = products.find((p) => p.id === item.id);
-        if (product) {
-          return supabase
-            .from("products")
-            .update({ stock: product.stock - item.quantity })
-            .eq("id", item.id);
-        }
-        return Promise.resolve();
-      });
-
-      await Promise.all(stockUpdatePromises);
-
-      // 3. Audit Log
-      auditService.log(
-        "SALE_COMPLETED",
-        `Sold ${cart.length} items for ${formatCurrency(total)}`,
-        organizationId,
-        { sale_id: sale.id, shift_id: currentShift.id }
-      );
+        auditService.log("SALE_OFFLINE", `Queued offline sale`, organizationId);
+      }
 
       setLastSale({ 
-        ...sale, 
+        ...savedSale, 
         date: new Date().toISOString(),
         shop_name: shopName,
         address: shopAddress,
@@ -232,7 +297,7 @@ export default function POSPage() {
       setIsReceiptModalOpen(true);
       setCart([]);
       setCashReceived("");
-      fetchProducts(); // Refresh product list for UI
+      updatePendingCount();
 
     } catch (err: any) {
       console.error(err);
@@ -281,9 +346,6 @@ export default function POSPage() {
               </span>
             </div>
           </div>
-          <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-             <span className="bg-black text-white text-xs font-bold px-3 py-1 rounded-full shadow">+ Add</span>
-          </div>
         </button>
       ))}
     </div>
@@ -292,7 +354,19 @@ export default function POSPage() {
   return (
     <div className="flex h-screen bg-gray-100 font-sans text-gray-800">
       
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      {/* OFFLINE BANNERS */}
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 bg-orange-600 text-white text-center py-2 z-[100] font-bold text-sm shadow-lg print:hidden">
+          ⚠️ YOU ARE OFFLINE. Sales will be saved locally. ({pendingCount} pending)
+        </div>
+      )}
+      {isOnline && pendingCount > 0 && (
+        <div className="fixed top-0 left-0 right-0 bg-blue-600 text-white text-center py-2 z-[100] font-bold text-sm shadow-lg print:hidden">
+          🔄 Syncing {pendingCount} pending sales...
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden relative pt-8"> {/* Add padding top if banner exists */}
         
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Sales Terminal</h1>
@@ -309,7 +383,6 @@ export default function POSPage() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full p-4 bg-white border border-gray-200 rounded-xl text-base focus:ring-2 focus:ring-black focus:border-transparent transition shadow-sm"
-            autoFocus
           />
         </div>
 

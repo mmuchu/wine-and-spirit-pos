@@ -1,118 +1,83 @@
  // src/lib/services/offlineService.ts
-import { createClient } from "@/lib/supabase/client";
-import { db, QueuedSale } from "@/lib/db";
-import { Product } from "@/lib/types";
+const OFFLINE_QUEUE_KEY = "offline_sales_queue";
 
 export const offlineService = {
-  async syncProducts() {
-    const supabase = createClient();
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*, categories(name)')
-        .eq('is_active', true);
-      
-      if (error) throw error;
-
-      if (data) {
-        await db.products.clear();
-        const timestamped = data.map((p: any) => ({ 
-          ...p, 
-          min_stock: p.min_stock || 10, 
-          updatedAt: Date.now() 
-        }));
-        await db.products.bulkAdd(timestamped);
-        console.log(`Synced ${data.length} products locally`);
-      }
-    } catch (err) {
-      console.error("Failed to sync products", err);
-    }
+  // Check if online
+  isOnline: () => {
+    return typeof navigator !== "undefined" ? navigator.onLine : true;
   },
 
-  async processSale(salePayload: any) {
-    const isOnline = navigator.onLine;
-
-    // NEW: Calculate Cost of Goods Sold (COGS)
-    let totalCogs = 0;
-    if (salePayload.items && Array.isArray(salePayload.items)) {
-        totalCogs = salePayload.items.reduce((sum: number, item: any) => {
-            const cost = item.cost_price || 0; 
-            return sum + (cost * item.quantity);
-        }, 0);
-    }
+  // Add sale to local queue
+  queueSale: (saleData: any) => {
+    if (typeof window === "undefined") return;
     
-    // Add COGS to the sale record
-    const finalPayload = {
-        ...salePayload,
-        cogs_amount: totalCogs
+    const queue = offlineService.getQueue();
+    const newSale = {
+      ...saleData,
+      id: `offline_${Date.now()}`,
+      created_at: new Date().toISOString(),
+      status: "pending_sync"
     };
-
-    if (isOnline) {
-      try {
-        const supabase = createClient();
-        const { data, error } = await supabase.from('sales').insert(finalPayload).select('id').single();
-        if (error) throw error;
-        
-        await this.updateLocalInventory(salePayload.items);
-        return { success: true, offline: false, id: data.id };
-      } catch (err) {
-        console.warn("Online failed, falling back to offline queue", err);
-      }
-    }
-
-    const queueItem: QueuedSale = {
-      payload: finalPayload,
-      status: 'pending',
-      createdAt: new Date()
-    };
-    const id = await db.salesQueue.add(queueItem);
-    await this.updateLocalInventory(salePayload.items);
     
-    return { success: true, offline: true, id: `local-${id}` };
+    queue.push(newSale);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    
+    return newSale;
   },
 
-  async syncPendingSales() {
-    if (!navigator.onLine) return;
-    const pending = await db.salesQueue.where('status').equals('pending').toArray();
-    if (pending.length === 0) return;
-
-    console.log(`Syncing ${pending.length} pending sales...`);
-
-    const supabase = createClient();
-    
-    for (const item of pending) {
-      try {
-        const { error } = await supabase.from('sales').insert(item.payload);
-        if (error) throw error;
-        
-        await db.salesQueue.update(item.id!, { status: 'synced' });
-        console.log(`Sale ${item.id} synced.`);
-      } catch (err) {
-        console.error(`Failed to sync sale ${item.id}`, err);
-      }
-    }
+  // Get current queue
+  getQueue: (): any[] => {
+    if (typeof window === "undefined") return [];
+    const data = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    return data ? JSON.parse(data) : [];
   },
 
-  async updateLocalInventory(items: any[]) {
-    for (const item of items) {
-      const product = await db.products.get(item.id);
-      if (product) {
-        await db.products.update(item.id, {
-          stock: Math.max(0, product.stock - item.quantity)
+  // Remove sale from queue after successful sync
+  removeSale: (tempId: string) => {
+    if (typeof window === "undefined") return;
+    const queue = offlineService.getQueue();
+    const newQueue = queue.filter((s) => s.id !== tempId);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(newQueue));
+  },
+
+  // Process queue (Sync to DB)
+  syncQueue: async (supabase: any, organizationId: string) => {
+    const queue = offlineService.getQueue();
+    
+    if (queue.length === 0) return { synced: 0, failed: 0 };
+
+    let synced = 0;
+    let failed = 0;
+
+    for (const sale of queue) {
+      try {
+        // 1. Insert Sale
+        const { id, ...dbData } = sale;
+        const { error: saleError } = await supabase.from("sales").insert({
+          ...dbData,
+          status: 'completed',
+          organization_id: organizationId
         });
+
+        if (saleError) throw saleError;
+
+        // 2. Update Stock for each item in that sale
+        for (const item of sale.items) {
+           // Use standard decrement logic
+           const { data: p } = await supabase.from('products').select('stock').eq('id', item.id).single();
+           if (p) {
+             await supabase.from('products').update({ stock: p.stock - item.quantity }).eq('id', item.id);
+           }
+        }
+
+        offlineService.removeSale(sale.id);
+        synced++;
+      } catch (err) {
+        console.error(`Failed to sync sale ${sale.id}`, err);
+        failed++;
       }
     }
-  },
 
-  async getLocalProducts(): Promise<Product[]> {
-    const data = await db.products.toArray();
-    return data.map(p => ({
-        ...p,
-        min_stock: p.min_stock || 10
-    })) as Product[];
-  },
-
-  async getPendingCount(): Promise<number> {
-    return await db.salesQueue.where('status').equals('pending').count();
+    return { synced, failed };
   }
 };
