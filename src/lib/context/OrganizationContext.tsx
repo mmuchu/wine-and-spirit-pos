@@ -3,7 +3,6 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { usePathname } from "next/navigation";
 
 interface OrgContextType {
   organizationId: string | null;
@@ -19,7 +18,6 @@ const OrganizationContext = createContext<OrgContextType>({
 
 export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
   const supabase = createClient();
-  const pathname = usePathname();
   
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -37,9 +35,18 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // 2. Check User Metadata (Fastest)
+        // MASTER USER FAILSAFE: Force Admin for this specific ID
+        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
+        if (user.id === MASTER_USER_ID) {
+          setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
+          setUserRole('admin');
+          setLoading(false);
+          return;
+        }
+
+        // 2. Normal Flow: Check User Metadata
         const orgId = user.user_metadata?.organization_id;
-        const role = user.user_metadata?.role || 'cashier'; // Default to cashier
+        const role = user.user_metadata?.role || 'cashier'; 
         
         if (orgId) {
           setOrganizationId(orgId);
@@ -70,7 +77,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
     };
 
     loadOrg();
-  }, [pathname]);
+  }, []);
 
   return (
     <OrganizationContext.Provider value={{ organizationId, userRole, loading }}>

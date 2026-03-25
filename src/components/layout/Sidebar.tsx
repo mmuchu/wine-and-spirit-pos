@@ -29,9 +29,9 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   
-  // Get loading state from context
+  // Get context and role
   const { organizationId, loading: orgLoading } = useOrganization();
-  const { isManager, isAdmin } = useRole();
+  const { isManager, isAdmin, isOwner } = useRole();
   
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -40,13 +40,20 @@ export function Sidebar() {
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open');
 
-  const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-  const isOwner = organizationId === MASTER_ORG_ID;
-
+  // Filter Navigation based on Role
   const visibleNavigation = navigation.filter(item => {
+    // Owner sees everything
     if (isOwner) return true;
+    
+    // Admins see everything
+    if (isAdmin) return true;
+
+    // Hide Admin-only items from non-admins
     if (item.adminOnly && !isAdmin) return false;
+
+    // Hide Manager-only items from non-managers
     if (item.managerOnly && !isManager) return false;
+
     return true;
   });
 
@@ -92,7 +99,7 @@ export function Sidebar() {
     
     if (shiftMode === 'open') {
       if (!organizationId) {
-        alert("Organization context missing. Cannot open shift.");
+        alert("Organization context missing.");
         return;
       }
 

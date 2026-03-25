@@ -4,49 +4,43 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
-import { settingsService } from "@/lib/services/settingsService";
 
 export default function SettingsPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-  
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
+  // Form State
   const [shopName, setShopName] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
-  const [mpesaPaybill, setMpesaPaybill] = useState("");
   const [vatEnabled, setVatEnabled] = useState(true);
-  const [vatNumber, setVatNumber] = useState("");
-  const [receiptFooter, setReceiptFooter] = useState("");
 
   useEffect(() => {
-    if (organizationId) {
-      fetchSettings();
-    } else {
-      setLoading(false);
-    }
+    if (organizationId) fetchSettings();
   }, [organizationId]);
 
   const fetchSettings = async () => {
-    // FIX: Add safety check for TypeScript
-    if (!organizationId) return;
-
     setLoading(true);
     try {
-      const data = await settingsService.getSettings(organizationId);
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error; // Ignore "no rows" error
+
       if (data) {
         setShopName(data.shop_name || "");
         setAddress(data.address || "");
         setPhone(data.phone || "");
-        setMpesaPaybill(data.mpesa_paybill || "");
         setVatEnabled(data.vat_enabled ?? true);
-        setVatNumber(data.vat_number || "");
-        setReceiptFooter(data.receipt_footer || "");
       }
     } catch (err) {
-      console.error("Error fetching settings", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -56,38 +50,39 @@ export default function SettingsPage() {
     if (!organizationId) return;
     setSaving(true);
     try {
-      await settingsService.upsertSettings(organizationId, {
-        shop_name: shopName,
-        address: address,
-        phone: phone,
-        mpesa_paybill: mpesaPaybill,
-        vat_enabled: vatEnabled,
-        vat_number: vatNumber,
-        receipt_footer: receiptFooter
-      });
+      const { error } = await supabase
+        .from('settings')
+        .upsert({
+          organization_id: organizationId,
+          shop_name: shopName,
+          address: address,
+          phone: phone,
+          vat_enabled: vatEnabled
+        }, { onConflict: 'organization_id' });
+
+      if (error) throw error;
       alert("Settings saved successfully!");
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      alert(`Error saving: ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) return <div className="p-8">Loading settings...</div>;
-  if (!organizationId) return <div className="p-8 text-center text-gray-500">Initializing...</div>;
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-4xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-500 text-sm mt-1">Manage your business profile.</p>
+        <p className="text-gray-500 text-sm mt-1">Configure your shop details.</p>
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm p-6 space-y-6">
         
         {/* Shop Details */}
         <div className="space-y-4">
-          <h3 className="font-bold text-lg border-b pb-2">Shop Details</h3>
+          <h2 className="text-lg font-bold border-b pb-2">Shop Details</h2>
           
           <div>
             <label className="block text-sm font-medium mb-1">Shop Name</label>
@@ -95,8 +90,8 @@ export default function SettingsPage() {
               type="text"
               value={shopName}
               onChange={(e) => setShopName(e.target.value)}
-              className="w-full p-3 border rounded-lg text-sm"
-              placeholder="Kenyan Spirit"
+              className="w-full p-3 border rounded-lg"
+              placeholder="My Wine Shop"
             />
           </div>
 
@@ -106,8 +101,8 @@ export default function SettingsPage() {
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full p-3 border rounded-lg text-sm"
-              placeholder="Nairobi, Kenya"
+              className="w-full p-3 border rounded-lg"
+              placeholder="123 Main St, Nairobi"
             />
           </div>
 
@@ -117,72 +112,35 @@ export default function SettingsPage() {
               type="text"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full p-3 border rounded-lg text-sm"
-              placeholder="0712 345 678"
+              className="w-full p-3 border rounded-lg"
+              placeholder="0722 000 000"
             />
           </div>
         </div>
 
-        {/* Payment & Tax */}
+        {/* Tax Settings */}
         <div className="space-y-4 pt-4">
-          <h3 className="font-bold text-lg border-b pb-2">Payment & Tax</h3>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">M-Pesa Paybill / Till Number</label>
-            <input
-              type="text"
-              value={mpesaPaybill}
-              onChange={(e) => setMpesaPaybill(e.target.value)}
-              className="w-full p-3 border rounded-lg text-sm"
-              placeholder="522522"
-            />
-          </div>
-
+          <h2 className="text-lg font-bold border-b pb-2">Taxation</h2>
+          
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-             <div>
-                <p className="font-medium text-sm">Enable VAT (16%)</p>
-                <p className="text-xs text-gray-500">Add 16% tax to all sales</p>
-             </div>
-             <button
-                onClick={() => setVatEnabled(!vatEnabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${vatEnabled ? 'bg-green-600' : 'bg-gray-300'}`}
-             >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${vatEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-             </button>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">VAT Registration Number (Optional)</label>
-            <input
-              type="text"
-              value={vatNumber}
-              onChange={(e) => setVatNumber(e.target.value)}
-              className="w-full p-3 border rounded-lg text-sm"
-              placeholder="P051234567X"
-            />
+            <div>
+              <p className="font-medium">Enable VAT (16%)</p>
+              <p className="text-xs text-gray-500">Add 16% VAT to all sales</p>
+            </div>
+            <button
+              onClick={() => setVatEnabled(!vatEnabled)}
+              className={`w-12 h-6 rounded-full transition-colors ${vatEnabled ? 'bg-black' : 'bg-gray-300'}`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${vatEnabled ? 'translate-x-6' : 'translate-x-0.5'}`}></div>
+            </button>
           </div>
         </div>
 
-        {/* Receipt */}
-        <div className="space-y-4 pt-4">
-          <h3 className="font-bold text-lg border-b pb-2">Receipt Customization</h3>
-          <div>
-            <label className="block text-sm font-medium mb-1">Footer Message</label>
-            <textarea
-              value={receiptFooter}
-              onChange={(e) => setReceiptFooter(e.target.value)}
-              className="w-full p-3 border rounded-lg text-sm"
-              rows={2}
-              placeholder="Thank you for shopping with us!"
-            />
-          </div>
-        </div>
-
-        <div className="pt-4 border-t flex justify-end gap-3">
-          <button 
+        <div className="pt-4 border-t">
+          <button
             onClick={handleSave}
             disabled={saving}
-            className="px-8 py-3 bg-black text-white rounded-lg font-bold hover:bg-gray-800 disabled:bg-gray-300"
+            className="w-full py-3 bg-black text-white rounded-lg font-bold disabled:bg-gray-300"
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>
