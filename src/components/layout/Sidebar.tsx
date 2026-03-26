@@ -1,5 +1,6 @@
  "use client";
 
+import React from 'react';
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
@@ -13,7 +14,7 @@ import { useRole } from "@/lib/hooks/useRole";
 type NavItem = {
   name: string;
   href: string;
-  icon: (props: any) => JSX.Element;
+  icon: React.ComponentType<any>; // Standard React Component type
   adminOnly?: boolean;
   managerOnly?: boolean;
   ownerOnly?: boolean;
