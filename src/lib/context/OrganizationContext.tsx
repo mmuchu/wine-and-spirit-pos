@@ -8,12 +8,14 @@ interface OrgContextType {
   organizationId: string | null;
   userRole: string | null;
   loading: boolean;
+  isLicenseValid: boolean;
 }
 
 const OrganizationContext = createContext<OrgContextType>({
   organizationId: null,
   userRole: null,
   loading: true,
+  isLicenseValid: true, // Default true to avoid flashing lock screen
 });
 
 export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
@@ -22,6 +24,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isLicenseValid, setIsLicenseValid] = useState(true);
 
   useEffect(() => {
     const loadOrg = async () => {
@@ -29,6 +32,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
+          setIsLicenseValid(true);
           setLoading(false);
           return;
         }
@@ -40,6 +44,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         if (orgId) {
           setOrganizationId(orgId);
           setUserRole(role || 'admin');
+          await checkLicense(orgId);
           setLoading(false);
           return;
         }
@@ -60,59 +65,49 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
             data: { organization_id: member.organization_id, role: member.role }
           });
           
-          setLoading(false);
-          return;
+          await checkLicense(member.organization_id);
+        } else {
+          // No org found
+          setOrganizationId(null);
+          setUserRole(null);
+          setIsLicenseValid(false);
         }
+      } catch (err) {
+        console.error("Org Context Error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-        // 3. SELF-HEALING (Robust Version)
-        console.log("No organization found. Attempting auto-setup...");
-        
-        // A. Find or Create 'Kenyan Spirit'
-        let targetOrgId: string | undefined;
-        
-        const { data: existingOrg } = await supabase
-          .from('organizations')
-          .select('id')
-          .eq('name', 'Kenyan Spirit')
+    // --- LICENSE CHECKER ---
+    const checkLicense = async (orgId: string) => {
+      try {
+        const { data, error } = await supabase
+          .from('settings')
+          .select('license_expires_at')
+          .eq('organization_id', orgId)
           .maybeSingle();
 
-        if (existingOrg) {
-          targetOrgId = existingOrg.id;
-        } else {
-          const { data: newOrg, error: createError } = await supabase
-            .from('organizations')
-            .insert({ name: 'Kenyan Spirit' })
-            .select('id')
-            .single();
-          
-          if (createError) throw createError;
-          targetOrgId = newOrg.id;
+        if (error) throw error;
+
+        if (!data) {
+           // No settings row? Let them in (fail open)
+           setIsLicenseValid(true);
+           return;
         }
 
-        // B. Add user as Admin (UPSERT to avoid duplicate errors)
-        if (targetOrgId) {
-          await supabase.from('organization_members').upsert({
-            organization_id: targetOrgId,
-            user_id: user.id,
-            role: 'admin'
-          }, { onConflict: 'organization_id, user_id' });
-
-          // C. Update Metadata
-          await supabase.auth.updateUser({
-            data: { organization_id: targetOrgId, role: 'admin' }
-          });
-
-          setOrganizationId(targetOrgId);
-          setUserRole('admin');
+        if (!data.license_expires_at) {
+          // NULL date = Lifetime Access (One-off sale)
+          setIsLicenseValid(true);
+        } else {
+          // Has date = Check if expired
+          const isExpired = new Date(data.license_expires_at) < new Date();
+          setIsLicenseValid(!isExpired);
         }
 
       } catch (err) {
-        console.error("Org Context Error:", err);
-        // Do not leave it hanging, set null
-        setOrganizationId(null);
-        setUserRole(null);
-      } finally {
-        setLoading(false);
+        console.error("License check failed", err);
+        setIsLicenseValid(true); // Fail open on error
       }
     };
 
@@ -126,7 +121,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   return (
-    <OrganizationContext.Provider value={{ organizationId, userRole, loading }}>
+    <OrganizationContext.Provider value={{ organizationId, userRole, loading, isLicenseValid }}>
       {children}
     </OrganizationContext.Provider>
   );

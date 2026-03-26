@@ -22,13 +22,15 @@ export default function AdminPortal() {
   const loadClients = async () => {
     setLoading(true);
     try {
+      // 1. Get all organizations settings
       const { data: settingsData, error } = await supabase
         .from('settings')
-        .select('id, shop_name, license_expires_at, organization_id, website_url') // Added website_url
+        .select('id, shop_name, license_expires_at, organization_id, website_url')
         .order('license_expires_at', { ascending: true });
 
       if (error) throw error;
 
+      // 2. Calculate Revenue for each client
       const clientsWithRevenue = await Promise.all((settingsData || []).map(async (client) => {
         const { data: sales } = await supabase
           .from('sales')
@@ -42,7 +44,7 @@ export default function AdminPortal() {
       setClients(clientsWithRevenue);
     } catch (err) {
       console.error(err);
-      alert("Error loading data.");
+      alert("Error loading data. Check console for RLS issues.");
     } finally {
       setLoading(false);
     }
@@ -62,6 +64,20 @@ export default function AdminPortal() {
       .eq('organization_id', orgId);
       
     alert(`Extended! New date: ${newDate.toLocaleDateString()}`);
+    loadClients();
+  };
+
+  // NEW: Grant Lifetime Access
+  const handleLifetime = async (orgId: string) => {
+    const confirm = window.confirm("Grant LIFETIME access? This client will never be locked out.");
+    if (!confirm) return;
+
+    await supabase
+      .from('settings')
+      .update({ license_expires_at: null }) // NULL = Forever
+      .eq('organization_id', orgId);
+      
+    alert("Lifetime Access Granted!");
     loadClients();
   };
 
@@ -89,7 +105,7 @@ export default function AdminPortal() {
     );
   }
 
-  const activeCount = clients.filter(c => new Date(c.license_expires_at) > new Date()).length;
+  const activeCount = clients.filter(c => !c.license_expires_at || new Date(c.license_expires_at) > new Date()).length;
   const expiredCount = clients.length - activeCount;
   const totalRevenue = clients.reduce((sum, c) => sum + c.revenue, 0);
 
@@ -146,7 +162,10 @@ export default function AdminPortal() {
                   <tr><td colSpan={6} className="p-8 text-center text-gray-400">Loading clients...</td></tr>
                 ) : (
                   clients.map(client => {
-                    const isExpired = new Date(client.license_expires_at) < new Date();
+                    // Logic: If NULL = Lifetime (Active). If Date < Now = Expired.
+                    const isExpired = client.license_expires_at && new Date(client.license_expires_at) < new Date();
+                    const isLifetime = !client.license_expires_at;
+                    
                     return (
                       <tr key={client.id} className={isExpired ? 'bg-red-50' : 'hover:bg-gray-50'}>
                         <td className="p-4 font-bold text-gray-900">{client.shop_name || 'Unnamed Shop'}</td>
@@ -156,21 +175,32 @@ export default function AdminPortal() {
                               Visit <ExternalLinkIcon className="w-3 h-3" />
                             </a>
                           ) : (
-                            <span className="text-gray-300">No link</span>
+                            <span className="text-gray-300 text-xs">No link</span>
                           )}
                         </td>
                         <td className="p-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${isExpired ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                            {isExpired ? 'LOCKED' : 'ACTIVE'}
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            isLifetime ? 'bg-purple-100 text-purple-700' : 
+                            isExpired ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {isLifetime ? 'LIFETIME' : isExpired ? 'LOCKED' : 'ACTIVE'}
                           </span>
                         </td>
                         <td className="p-4 font-medium text-gray-700">{formatCurrency(client.revenue)}</td>
                         <td className="p-4 text-gray-500">
-                          {new Date(client.license_expires_at).toLocaleDateString()}
+                          {isLifetime ? 'Forever' : new Date(client.license_expires_at).toLocaleDateString()}
                         </td>
                         <td className="p-4 text-right space-x-2">
                           <button onClick={() => handleExtend(client.organization_id, 30)} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition">+30 Days</button>
                           <button onClick={() => handleExtend(client.organization_id, 365)} className="px-3 py-1.5 bg-black text-white rounded-lg text-xs font-bold hover:bg-gray-800 transition">+1 Year</button>
+                          
+                          {/* NEW: Lifetime Button */}
+                          <button 
+                            onClick={() => handleLifetime(client.organization_id)} 
+                            className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 transition"
+                          >
+                            Lifetime
+                          </button>
                         </td>
                       </tr>
                     );
