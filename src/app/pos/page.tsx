@@ -10,6 +10,7 @@ import { Product, CartItem } from "@/lib/types";
 import { auditService } from "@/lib/services/auditService";
 import { shiftService } from "@/lib/services/shiftService";
 import { offlineService } from "@/lib/services/offlineService";
+import { BarcodeScanner } from "@/components/pos/BarcodeScanner";
 
 export default function POSPage() {
   const supabase = createClient();
@@ -37,6 +38,9 @@ export default function POSPage() {
 
   const [isOnline, setIsOnline] = useState(offlineService.isOnline());
   const [pendingCount, setPendingCount] = useState(0);
+
+  // Scanner State
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // 1. Main Loader Effect
   useEffect(() => {
@@ -202,7 +206,6 @@ export default function POSPage() {
         }
         fetchProducts(organizationId);
       } else {
-        // FIX: Removed duplicate organization_id
         savedSale = offlineService.queueSale(salePayload);
         setProducts(prev => prev.map(p => {
           const inCart = cart.find(c => c.id === p.id);
@@ -223,6 +226,12 @@ export default function POSPage() {
     } finally {
       setProcessing(false);
     }
+  };
+
+  // --- SCANNER HANDLER ---
+  const handleBarcodeScan = (code: string) => {
+    setSearchTerm(code);
+    setIsScannerOpen(false);
   };
 
   // --- RENDER ---
@@ -250,9 +259,28 @@ export default function POSPage() {
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-900">Sales Terminal</h1>
         </div>
-        <div className="p-4 bg-gray-50 border-b">
-          <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full p-4 bg-white border rounded-xl" />
+        
+        {/* Search & Scanner */}
+        <div className="p-4 bg-gray-50 border-b flex gap-2">
+          <input
+            type="text"
+            placeholder="Search or scan barcode..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 p-4 bg-white border border-gray-200 rounded-xl text-base"
+          />
+          <button 
+            onClick={() => setIsScannerOpen(true)}
+            className="p-4 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors shrink-0"
+            title="Scan Barcode"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" />
+            </svg>
+          </button>
         </div>
+
         <div className="flex-1 overflow-y-auto bg-gray-50 p-6 grid grid-cols-2 gap-4 content-start">
            {searchTerm && filteredProducts.length === 0 ? <div className="col-span-2 text-center text-gray-400 py-10">No products found.</div> : null}
            {(searchTerm ? filteredProducts : products).map(product => (
@@ -308,7 +336,9 @@ export default function POSPage() {
         </div>
       </div>
 
+      {/* Modals */}
       {lastSale && <ReceiptModal isOpen={isReceiptModalOpen} onClose={() => setIsReceiptModalOpen(false)} saleData={lastSale} />}
+      {isScannerOpen && <BarcodeScanner onScan={handleBarcodeScan} onClose={() => setIsScannerOpen(false)} />}
     </div>
   );
 }
