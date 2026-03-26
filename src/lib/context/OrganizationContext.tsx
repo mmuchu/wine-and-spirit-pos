@@ -29,58 +29,65 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
-          setOrganizationId(null);
-          setUserRole(null);
           setLoading(false);
           return;
         }
 
-        // MASTER USER HARDCODE (LIVE FIX)
+        // ==============================================
+        // ULTIMATE SAFETY NET
+        // If you are this user, you ARE the admin.
+        // ==============================================
         const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
+        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+
         if (user.id === MASTER_USER_ID) {
-          console.log("Master User Detected. Setting Admin.");
-          setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
+          console.log("Master User recognized. Granting Admin access.");
+          setOrganizationId(MASTER_ORG_ID);
           setUserRole('admin');
           setLoading(false);
           return;
         }
 
-        // Normal Flow
-        const orgId = user.user_metadata?.organization_id;
-        const role = user.user_metadata?.role || 'cashier'; 
+        // --- Normal Flow for other users ---
         
+        // 1. Check Metadata
+        const orgId = user.user_metadata?.organization_id;
+        const role = user.user_metadata?.role;
+
         if (orgId) {
           setOrganizationId(orgId);
-          setUserRole(role);
+          setUserRole(role || 'cashier');
+          setLoading(false);
+          return;
+        }
+
+        // 2. Fallback: Check DB
+        const { data: member } = await supabase
+          .from('organization_members')
+          .select('organization_id, role')
+          .eq('user_id', user.id)
+          .single();
+
+        if (member?.organization_id) {
+          setOrganizationId(member.organization_id);
+          setUserRole(member.role || 'cashier');
         } else {
-          const { data: member } = await supabase
-            .from('organization_members')
-            .select('organization_id, role')
-            .eq('user_id', user.id)
-            .single();
-          
-          if (member?.organization_id) {
-            setOrganizationId(member.organization_id);
-            setUserRole(member.role || 'cashier');
-          } else {
-            setOrganizationId(null);
-            setUserRole(null);
-          }
+          // No org found
+          setOrganizationId(null);
+          setUserRole(null);
         }
       } catch (err) {
-        console.error("Error loading organization", err);
-        setOrganizationId(null);
-        setUserRole(null);
+        console.error("Org Context Error:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    // SAFETY HATCH: Ensure loading ends after 3 seconds no matter what
+    // Safety Timeout
     const timeout = setTimeout(() => {
-        console.warn("Org context timeout - forcing load end");
-        setLoading(false);
-    }, 3000);
+      console.warn("Context timeout - forcing load end");
+      setLoading(false);
+    }, 2000);
 
     loadOrg().then(() => clearTimeout(timeout));
   }, []);
