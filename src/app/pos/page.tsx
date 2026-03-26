@@ -40,26 +40,16 @@ export default function POSPage() {
 
   // 1. Main Loader Effect
   useEffect(() => {
-    // If context loading, wait
     if (orgLoading) return;
-
-    // If no ID, stop loading
-    if (!organizationId) {
-      setLoading(false);
-      return;
-    }
-
-    // Load data
+    if (!organizationId) { setLoading(false); return; }
     loadInitialData(organizationId);
 
-    // SAFETY TIMEOUT: Never load forever
     const timeout = setTimeout(() => {
       console.warn("POS Load Timeout - forcing finish");
       setLoading(false);
     }, 5000);
 
     return () => clearTimeout(timeout);
-
   }, [organizationId, orgLoading]);
 
   // 2. Network Listeners
@@ -110,7 +100,7 @@ export default function POSPage() {
     try {
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, price, stock, sku, category_id, is_active")
+        .select("id, name, price, stock, sku, category_id, is_active, cost_price")
         .eq("organization_id", orgId)
         .eq("is_active", true)
         .order("name");
@@ -179,6 +169,8 @@ export default function POSPage() {
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
     if (!currentShift) { alert("No Active Shift."); return; }
+    // FIX: Guard clause for organizationId
+    if (!organizationId) { alert("Configuration Error: No Organization."); return; }
 
     setProcessing(true);
     try {
@@ -261,11 +253,11 @@ export default function POSPage() {
         <div className="p-4 bg-gray-50 border-b">
           <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full p-4 bg-white border rounded-xl" />
         </div>
-        <div className="flex-1 overflow-y-auto bg-gray-50 p-6 grid grid-cols-2 gap-4">
-           {searchTerm && filteredProducts.length === 0 ? <div className="col-span-2 text-center text-gray-400">No products found.</div> : null}
+        <div className="flex-1 overflow-y-auto bg-gray-50 p-6 grid grid-cols-2 gap-4 content-start">
+           {searchTerm && filteredProducts.length === 0 ? <div className="col-span-2 text-center text-gray-400 py-10">No products found.</div> : null}
            {(searchTerm ? filteredProducts : products).map(product => (
              <button key={product.id} onClick={() => addToCart(product)} disabled={product.stock <= 0}
-               className={`bg-white rounded-xl border p-4 text-left h-36 flex flex-col justify-between ${product.stock <= 0 ? 'opacity-50' : 'hover:border-black'}`}>
+               className={`bg-white rounded-xl border p-4 text-left h-36 flex flex-col justify-between ${product.stock <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:border-black'}`}>
                <p className="font-bold text-sm">{product.name}</p>
                <div className="flex justify-between items-end">
                  <p className="text-lg font-extrabold">{formatCurrency(product.price)}</p>
@@ -278,23 +270,26 @@ export default function POSPage() {
 
       {/* Right Side: Cart */}
       <div className="w-[400px] bg-white border-l flex flex-col shadow-xl">
-        <div className="p-4 border-b"><h2 className="font-bold text-lg">Current Order ({cart.length})</h2></div>
+        <div className="p-4 border-b flex justify-between items-center">
+           <h2 className="font-bold text-lg">Current Order</h2>
+           {cart.length > 0 && <button onClick={() => setCart([])} className="text-xs text-red-500 font-medium">Clear</button>}
+        </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {cart.length === 0 && <div className="text-center text-gray-400 py-10">Cart empty</div>}
           {cart.map(item => (
             <div key={item.id} className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
               <div className="flex-1"><p className="font-medium text-sm">{item.name}</p><p className="text-xs text-gray-500">{formatCurrency(item.price)}</p></div>
               <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-6 h-6 rounded bg-gray-200 font-bold text-xs">-</button>
-              <span className="font-bold text-sm">{item.quantity}</span>
+              <span className="font-bold text-sm w-6 text-center">{item.quantity}</span>
               <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="w-6 h-6 rounded bg-gray-200 font-bold text-xs">+</button>
               <span className="font-bold text-sm w-16 text-right">{formatCurrency(item.price * item.quantity)}</span>
             </div>
           ))}
         </div>
         
-        <div className="p-4 border-t space-y-3">
+        <div className="p-4 border-t space-y-3 bg-white shrink-0">
           <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-          {vatEnabled && <div className="flex justify-between text-sm text-gray-500"><span>VAT</span><span>{formatCurrency(tax)}</span></div>}
+          {vatEnabled && <div className="flex justify-between text-sm text-gray-500"><span>VAT (16%)</span><span>{formatCurrency(tax)}</span></div>}
           <div className="flex justify-between font-extrabold text-xl border-t pt-2"><span>Total</span><span>{formatCurrency(total)}</span></div>
           
           <div className="flex gap-2">
