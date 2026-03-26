@@ -1,4 +1,5 @@
- "use client";
+ // src/lib/context/OrganizationContext.tsx
+"use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -35,29 +36,36 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
+        // DEBUG: Show us exactly what ID is coming from Supabase
+        const myId = 'ea6cf402-8116-4440-9d40-446454366071';
+        
+        console.log("DEBUG - User ID:", user.id);
+        console.log("DEBUG - Master ID:", myId);
+        console.log("DEBUG - Match:", user.id === myId);
+        
         // MASTER ADMIN BYPASS
-        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
-        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
-        if (user.id === MASTER_USER_ID) {
-          setOrganizationId(MASTER_ORG_ID);
+        if (user.id === myId) {
+          console.log("MASTER ADMIN ACCESS GRANTED");
+          setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
           setUserRole('admin');
           setIsLicenseValid(true);
           setLoading(false);
           return;
         }
 
+        // NORMAL FLOW
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role;
 
         if (orgId) {
           setOrganizationId(orgId);
           setUserRole(role || 'admin');
-          await checkLicense(orgId);
+          setIsLicenseValid(true);
           setLoading(false);
           return;
         }
 
+        // DB CHECK
         const { data: member } = await supabase
           .from('organization_members')
           .select('organization_id, role')
@@ -67,25 +75,15 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         if (member?.organization_id) {
           setOrganizationId(member.organization_id);
           setUserRole(member.role || 'admin');
-          await supabase.auth.updateUser({ data: { organization_id: member.organization_id, role: member.role } });
-          await checkLicense(member.organization_id);
+          setIsLicenseValid(true);
         } else {
-          setOrganizationId(null);
-          setUserRole(null);
+          console.error("NO ORG FOUND FOR USER");
         }
       } catch (err) {
-        console.error(err);
+        console.error("CTX ERROR:", err);
       } finally {
         setLoading(false);
       }
-    };
-
-    const checkLicense = async (orgId: string) => {
-      try {
-        const { data } = await supabase.from('settings').select('license_expires_at').eq('organization_id', orgId).maybeSingle();
-        if (!data || !data.license_expires_at) setIsLicenseValid(true);
-        else setIsLicenseValid(new Date(data.license_expires_at) > new Date());
-      } catch { setIsLicenseValid(true); }
     };
 
     const timeout = setTimeout(() => setLoading(false), 5000);
