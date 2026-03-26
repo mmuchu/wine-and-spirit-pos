@@ -10,11 +10,11 @@ import { ShiftModal } from "@/components/shifts/ShiftModal";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { useRole } from "@/lib/hooks/useRole";
 
-// Define the type for navigation items
+// --- EXPLICIT TYPE DEFINITION ---
 type NavItem = {
   name: string;
   href: string;
-  icon: React.ComponentType<any>; // Standard React Component type
+  icon: React.ComponentType<any>;
   adminOnly?: boolean;
   managerOnly?: boolean;
   ownerOnly?: boolean;
@@ -40,12 +40,11 @@ export function Sidebar() {
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [shiftMode, setShiftMode] = useState<'open' | 'close'>('open');
 
-  // Filter Navigation based on roles
   const visibleNavigation = navigation.filter(item => {
     if (item.ownerOnly && !isOwner) return false;
-    if (isOwner) return true; // Owner sees everything
-    if (isAdmin) return true; // Admin sees everything
-    if (item.adminOnly && !isAdmin) return false; // Hide admin items
+    if (isOwner) return true;
+    if (isAdmin) return true;
+    if (item.adminOnly && !isAdmin) return false;
     return true;
   });
 
