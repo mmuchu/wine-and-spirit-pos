@@ -1,4 +1,4 @@
-import { useOrganization } from "@/lib/context/OrganizationContext";
+﻿import { useOrganization } from "@/lib/context/OrganizationContext";
 
 export function useRole() {
   const { userRole, loading } = useOrganization();
