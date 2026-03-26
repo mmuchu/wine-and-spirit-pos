@@ -36,47 +36,18 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         }
 
         // ============================================================
-        // SUPER ADMIN BYPASS (HARDCODED EMAIL)
+        // NUCLEAR FIX: FORCE ORG ID FOR ALL LOGGED-IN USERS
         // ============================================================
-        const ADMIN_EMAIL = 'admin@kenyanspirit.com';
-        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
-        if (user.email === ADMIN_EMAIL) {
-          console.log("ADMIN ACCESS GRANTED VIA EMAIL");
-          setOrganizationId(MASTER_ORG_ID);
-          setUserRole('admin');
-          setIsLicenseValid(true);
-          setLoading(false);
-          return;
-        }
+        const FORCED_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+        
+        console.log("NUCLEAR FIX: Forcing Organization ID");
+        setOrganizationId(FORCED_ORG_ID);
+        setUserRole('admin');
+        setIsLicenseValid(true);
+        setLoading(false);
+        return;
         // ============================================================
 
-        // NORMAL USER FLOW
-        const orgId = user.user_metadata?.organization_id;
-        const role = user.user_metadata?.role;
-
-        if (orgId) {
-          setOrganizationId(orgId);
-          setUserRole(role || 'admin');
-          setIsLicenseValid(true);
-          setLoading(false);
-          return;
-        }
-
-        const { data: member } = await supabase
-          .from('organization_members')
-          .select('organization_id, role')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (member?.organization_id) {
-          setOrganizationId(member.organization_id);
-          setUserRole(member.role || 'admin');
-          setIsLicenseValid(true);
-        } else {
-          setOrganizationId(null);
-          setUserRole(null);
-        }
       } catch (err) {
         console.error(err);
       } finally {
