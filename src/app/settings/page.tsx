@@ -17,6 +17,10 @@ export default function SettingsPage() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [vatEnabled, setVatEnabled] = useState(true);
+  
+  // New Fields
+  const [mpesaTill, setMpesaTill] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
 
   useEffect(() => {
     if (organizationId) fetchSettings();
@@ -29,7 +33,7 @@ export default function SettingsPage() {
         .from('settings')
         .select('*')
         .eq('organization_id', organizationId)
-        .single();
+        .maybeSingle();
 
       if (error && error.code !== 'PGRST116') throw error; // Ignore "no rows" error
 
@@ -38,6 +42,8 @@ export default function SettingsPage() {
         setAddress(data.address || "");
         setPhone(data.phone || "");
         setVatEnabled(data.vat_enabled ?? true);
+        setMpesaTill(data.mpesa_till || "");
+        setWebsiteUrl(data.website_url || "");
       }
     } catch (err) {
       console.error(err);
@@ -57,7 +63,9 @@ export default function SettingsPage() {
           shop_name: shopName,
           address: address,
           phone: phone,
-          vat_enabled: vatEnabled
+          vat_enabled: vatEnabled,
+          mpesa_till: mpesaTill,
+          website_url: websiteUrl
         }, { onConflict: 'organization_id' });
 
       if (error) throw error;
@@ -116,10 +124,39 @@ export default function SettingsPage() {
               placeholder="0722 000 000"
             />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Website / Social Media URL</label>
+            <input
+              type="text"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              className="w-full p-3 border rounded-lg"
+              placeholder="https://myshop.co.ke or https://instagram.com/myshop"
+            />
+            <p className="text-xs text-gray-400 mt-1">This link will appear in your Admin Dashboard.</p>
+          </div>
+        </div>
+
+        {/* M-PESA Details */}
+        <div className="space-y-4 pt-4 border-t">
+          <h2 className="text-lg font-bold border-b pb-2">M-Pesa Details</h2>
+          
+          <div>
+            <label className="block text-sm font-medium mb-1">Paybill / Till Number</label>
+            <input
+              type="text"
+              value={mpesaTill}
+              onChange={(e) => setMpesaTill(e.target.value)}
+              className="w-full p-3 border rounded-lg"
+              placeholder="522522"
+            />
+            <p className="text-xs text-gray-400 mt-1">This will appear on receipts for M-Pesa payments.</p>
+          </div>
         </div>
 
         {/* Tax Settings */}
-        <div className="space-y-4 pt-4">
+        <div className="space-y-4 pt-4 border-t">
           <h2 className="text-lg font-bold border-b pb-2">Taxation</h2>
           
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
