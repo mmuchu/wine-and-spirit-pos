@@ -1,16 +1,15 @@
  // src/lib/hooks/useRole.ts
 import { useOrganization } from "@/lib/context/OrganizationContext";
 
-export const useRole = () => {
-  const { userRole, organizationId, loading } = useOrganization();
+export function useRole() {
+  const { userRole } = useOrganization();
 
-  // Calculate Roles
-  const isManager = userRole === 'admin' || userRole === 'manager';
-  const isAdmin = userRole === 'admin';
-
-  // SAFETY HATCH: Owner of the main organization has full power
-  const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-  const isOwner = organizationId === MASTER_ORG_ID;
-
-  return { userRole, isManager, isAdmin, isOwner, loading };
-};
+  return {
+    userRole: userRole, // Keep this name for Sidebar compatibility
+    role: userRole,
+    isAdmin: userRole === 'admin' || userRole === 'owner',
+    isManager: userRole === 'manager' || userRole === 'admin' || userRole === 'owner',
+    isOwner: userRole === 'owner',
+    isCashier: userRole === 'cashier'
+  };
+}

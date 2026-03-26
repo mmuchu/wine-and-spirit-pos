@@ -22,7 +22,7 @@ const navigation = [
   { name: "Stock Return", href: "/reports/stock", icon: DocumentIcon, managerOnly: true },
   { name: "Shift History", href: "/shift-history", icon: ClockIcon },
   { name: "Settings", href: "/settings", icon: CogIcon, adminOnly: true },
-  { name: "Super Admin", href: "/admin", icon: ShieldIcon, ownerOnly: true }, // NEW LINK
+  { name: "Super Admin", href: "/admin", icon: ShieldIcon, ownerOnly: true },
 ];
 
 export function Sidebar() {
@@ -30,7 +30,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   
-  const { organizationId, loading: orgLoading } = useOrganization();
+  const { organizationId, loading: orgLoading, userRole: roleFromOrg } = useOrganization();
   const { isManager, isAdmin, isOwner, userRole } = useRole();
   
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -93,24 +93,15 @@ export function Sidebar() {
     setIsShiftModalOpen(false);
     
     if (shiftMode === 'open') {
-      if (!organizationId) {
-        alert("Organization context missing.");
-        return;
-      }
-
+      if (!organizationId) return;
       try {
         const newShift = await shiftService.openShift(organizationId, amount);
         setCurrentShift(newShift);
       } catch (error: any) {
-        console.error("Shift error:", error);
         alert(error?.message || "Failed to start shift.");
       }
     } else {
-      const params = new URLSearchParams({
-        action: 'close_shift',
-        cash: String(amount),
-        notes: notes || ''
-      });
+      const params = new URLSearchParams({ action: 'close_shift', cash: String(amount), notes: notes || '' });
       router.push(`/reports/stock?${params.toString()}`);
     }
   };
@@ -118,37 +109,21 @@ export function Sidebar() {
   return (
     <>
       {/* Mobile Menu Button */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-200/50 p-3 flex justify-between items-center shadow-sm">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white/80 backdrop-blur-lg border-b p-3 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">K</span>
-          </div>
+          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center"><span className="text-white font-bold text-sm">K</span></div>
           <h1 className="font-bold text-gray-900">Kenyan Spirit</h1>
         </div>
-        <button 
-          onClick={() => setIsMobileOpen(!isMobileOpen)}
-          className="p-2 rounded-md hover:bg-gray-100 transition-colors"
-        >
-          <MenuIcon className="w-6 h-6 text-gray-600" />
-        </button>
+        <button onClick={() => setIsMobileOpen(!isMobileOpen)} className="p-2 rounded-md hover:bg-gray-100"><MenuIcon className="w-6 h-6 text-gray-600" /></button>
       </div>
 
-      {/* Mobile Overlay */}
-      {isMobileOpen && (
-        <div 
-          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
-          onClick={() => setIsMobileOpen(false)}
-        />
-      )}
+      {isMobileOpen && <div className="fixed inset-0 bg-black/20 z-40 lg:hidden" onClick={() => setIsMobileOpen(false)} />}
 
       {/* Sidebar */}
-      <aside className="fixed top-0 left-0 z-50 h-screen w-72 bg-white border-r border-gray-200 flex flex-col">
-        {/* Logo Area */}
-        <div className="h-16 flex items-center px-6 border-b border-gray-100 shrink-0">
+      <aside className="fixed top-0 left-0 z-50 h-screen w-72 bg-white border-r flex flex-col">
+        <div className="h-16 flex items-center px-6 border-b shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-lg">K</span>
-            </div>
+            <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg"><span className="text-white font-bold text-lg">K</span></div>
             <div>
               <h1 className="text-sm font-bold text-gray-900 tracking-tight">KENYAN SPIRIT</h1>
               <p className="text-[10px] text-gray-400 uppercase tracking-widest">Lounge & Bistro</p>
@@ -156,95 +131,55 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 min-h-0 p-4 space-y-1 overflow-y-auto">
           {visibleNavigation.map((item) => {
             const isActive = pathname === item.href;
-            
             return (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={() => setIsMobileOpen(false)}
-                className={`
-                  flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group
-                  ${isActive 
-                    ? "bg-black text-white shadow-lg shadow-gray-200" 
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"}
-                `}
-              >
-                <item.icon className={`w-5 h-5 transition-colors ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
+              <Link key={item.name} href={item.href} onClick={() => setIsMobileOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all group ${isActive ? "bg-black text-white shadow-lg" : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"}`} >
+                <item.icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'}`} />
                 {item.name}
               </Link>
             );
           })}
         </nav>
 
-        {/* Bottom Section */}
-        <div className="p-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
-          {/* Shift Widget */}
-          <div className="mb-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
+        <div className="p-4 border-t bg-gray-50/50 shrink-0">
+          <div className="mb-4 p-4 bg-white rounded-xl border shadow-sm">
             <div className="flex justify-between items-center mb-3">
                <div>
                   <p className="text-[10px] font-semibold text-gray-400 uppercase">Shift Status</p>
-                  <p className={`text-sm font-bold mt-0.5 ${currentShift ? 'text-emerald-500' : 'text-gray-400'}`}>
-                    {orgLoading ? 'Loading...' : (currentShift ? 'Active' : 'Closed')}
-                  </p>
+                  <p className={`text-sm font-bold mt-0.5 ${currentShift ? 'text-emerald-500' : 'text-gray-400'}`}>{orgLoading ? 'Loading...' : (currentShift ? 'Active' : 'Closed')}</p>
                </div>
                <div className={`w-3 h-3 rounded-full shadow-inner ${currentShift ? 'bg-emerald-400 animate-pulse' : 'bg-gray-300'}`}></div>
             </div>
-            <button 
-               onClick={handleShiftAction}
-               disabled={orgLoading || !organizationId}
-               className={`w-full py-2 rounded-lg text-xs font-bold transition-colors ${
-                 currentShift 
-                   ? 'bg-red-50 text-red-600 hover:bg-red-100' 
-                   : 'bg-black text-white hover:bg-gray-800'
-               } disabled:bg-gray-100 disabled:text-gray-400`}
-             >
+            <button onClick={handleShiftAction} disabled={orgLoading || !organizationId}
+              className={`w-full py-2 rounded-lg text-xs font-bold transition-colors ${currentShift ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-black text-white hover:bg-gray-800'} disabled:bg-gray-100 disabled:text-gray-400`}>
                {orgLoading ? 'Initializing...' : (currentShift ? 'Close Shift' : 'Start Shift')}
              </button>
           </div>
 
-          {/* User Profile */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center border border-gray-200">
-                <span className="text-gray-600 font-bold text-sm">
-                  {userEmail ? userEmail.charAt(0).toUpperCase() : "U"}
-                </span>
+              <div className="h-9 w-9 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center border">
+                <span className="text-gray-600 font-bold text-sm">{userEmail ? userEmail.charAt(0).toUpperCase() : "U"}</span>
               </div>
               <div className="flex-1 overflow-hidden">
                 <p className="text-xs font-semibold text-gray-700 truncate">{userEmail || "User"}</p>
-                <p className="text-[10px] text-gray-400">
-                  {isOwner ? 'Owner' : (userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : 'User')}
-                </p>
+                <p className="text-[10px] text-gray-400">{isOwner ? 'Owner' : (userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : 'User')}</p>
               </div>
             </div>
-            <button 
-              onClick={handleSignOut}
-              className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-              title="Sign Out"
-            >
-              <LogoutIcon className="w-4 h-4" />
-            </button>
+            <button onClick={handleSignOut} className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50" title="Sign Out"><LogoutIcon className="w-4 h-4" /></button>
           </div>
         </div>
       </aside>
 
-      {/* Modals */}
-      <ShiftModal
-        isOpen={isShiftModalOpen}
-        onClose={() => setIsShiftModalOpen(false)}
-        onConfirm={handleCashConfirm}
-        mode={shiftMode}
-        expectedCash={0}
-      />
+      <ShiftModal isOpen={isShiftModalOpen} onClose={() => setIsShiftModalOpen(false)} onConfirm={handleCashConfirm} mode={shiftMode} expectedCash={0} />
     </>
   );
 }
 
-// --- Icons ---
+// Icons
 function HomeIcon(props: any) { return (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>); }
 function CartIcon(props: any) { return (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>); }
 function BoxIcon(props: any) { return (<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}><path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>); }

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { OrganizationProvider } from "@/lib/context/OrganizationContext";
-import { RoleProvider } from "@/lib/hooks/useRole";
+import { Sidebar } from "@/components/layout/Sidebar";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,9 +21,10 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <OrganizationProvider>
-          <RoleProvider>
+          <Sidebar />
+          <main className="ml-72 min-h-screen bg-gray-50">
             {children}
-          </RoleProvider>
+          </main>
         </OrganizationProvider>
       </body>
     </html>
