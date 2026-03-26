@@ -5,12 +5,12 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Product } from "@/lib/types";
-import { ProductFormModal } from "@/components/inventory/ProductFormModal";
 import { StockAdjustmentModal } from "@/components/inventory/StockAdjustmentModal";
 import { stockService } from "@/lib/services/stockService";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
 import { LowStockAlert } from "@/components/inventory/LowStockAlert";
+import { BarcodeScanner } from "@/components/pos/BarcodeScanner";
 
 export default function InventoryPage() {
   const supabase = createClient();
@@ -21,13 +21,26 @@ export default function InventoryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   
-  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  // Form State (Inline)
+  const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [saving, setSaving] = useState(false);
   
+  // Form Fields
+  const [name, setName] = useState("");
+  const [sku, setSku] = useState("");
+  const [price, setPrice] = useState("");
+  const [costPrice, setCostPrice] = useState("");
+  const [stock, setStock] = useState("");
+  const [category, setCategory] = useState("Spirits");
+  
+  // Modals
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  
   const [recentMovements, setRecentMovements] = useState<any[]>([]);
+  
+  // Scanner
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   useEffect(() => {
     if (organizationId) {
@@ -49,6 +62,7 @@ export default function InventoryPage() {
     }
   }, [searchTerm, products]);
 
+  // --- Data Fetching ---
   const fetchProducts = async () => {
     if (!organizationId) return;
     setLoading(true);
@@ -79,22 +93,91 @@ export default function InventoryPage() {
     }
   };
 
+  // --- Form Handlers ---
+  const openNewForm = () => {
+    setEditingProduct(null);
+    setName("");
+    setSku("");
+    setPrice("");
+    setCostPrice("");
+    setStock("");
+    setCategory("Spirits");
+    setShowForm(true);
+  };
+
+  const openEditForm = (product: Product) => {
+    setEditingProduct(product);
+    setName(product.name);
+    setSku(product.sku || "");
+    setPrice(String(product.price));
+    setCostPrice(String(product.cost_price || 0));
+    setStock(String(product.stock));
+    setCategory(product.category_id || "Spirits");
+    setShowForm(true);
+  };
+
+  const handleSaveProduct = async () => {
+    if (!name || !price) {
+      alert("Name and Price are required.");
+      return;
+    }
+    setSaving(true);
+
+    try {
+      if (editingProduct) {
+        // Update
+        const { error } = await supabase
+          .from("products")
+          .update({
+            name,
+            sku: sku || null,
+            price: parseFloat(price),
+            cost_price: parseFloat(costPrice) || 0,
+            stock: parseInt(stock) || 0,
+            category_id: category
+          })
+          .eq("id", editingProduct.id);
+        
+        if (error) throw error;
+      } else {
+        // Create
+        if (!organizationId) return;
+        const { error } = await supabase.from("products").insert({
+          organization_id: organizationId,
+          name,
+          sku: sku || null,
+          price: parseFloat(price),
+          cost_price: parseFloat(costPrice) || 0,
+          stock: parseInt(stock) || 0,
+          category_id: category,
+          is_active: true
+        });
+        if (error) throw error;
+      }
+
+      setShowForm(false);
+      fetchProducts();
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // --- Scanner Handler ---
+  const handleBarcodeScan = (code: string) => {
+    setSku(code);
+    setIsScannerOpen(false);
+  };
+
+  // --- Adjustment ---
   const handleOpenAdjustment = (product: Product) => {
     setSelectedProduct(product);
     setIsAdjustmentModalOpen(true);
   };
-  
-  const handleCloseAdjustment = () => {
-    setIsAdjustmentModalOpen(false);
-  };
-
-  const handleSuccess = () => {
-    fetchProducts();
-    fetchMovements();
-  };
 
   return (
-    <div className="p-6 lg:p-8 space-y-8">
+    <div className="p-6 lg:p-8 space-y-6">
       <LowStockAlert />
       
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -103,13 +186,89 @@ export default function InventoryPage() {
           <p className="text-gray-500 text-sm mt-1">{products.length} SKUs</p>
         </div>
         <button
-          onClick={() => { setEditingProduct(null); setIsProductModalOpen(true); }}
+          onClick={openNewForm}
           className="px-6 py-2.5 bg-black text-white rounded-lg text-sm font-bold hover:bg-gray-800 shadow-lg"
         >
           + New Product
         </button>
       </div>
 
+      {/* Inline Form (Add/Edit) */}
+      {showForm && (
+        <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
+          <div className="flex justify-between items-center border-b pb-2">
+            <h2 className="text-lg font-bold">{editingProduct ? "Edit Product" : "New Product"}</h2>
+            <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-black text-xl">&times;</button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Product Name *</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+
+            {/* SKU with Scanner */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Barcode / SKU</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={sku} 
+                  onChange={(e) => setSku(e.target.value)} 
+                  className="flex-1 p-3 border rounded-lg" 
+                  placeholder="Scan or type" 
+                />
+                <button 
+                  onClick={() => setIsScannerOpen(true)}
+                  className="p-3 bg-black text-white rounded-lg hover:bg-gray-800"
+                  title="Scan Barcode"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75Z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Selling Price (Ksh) *</label>
+              <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Cost Price (Ksh)</label>
+              <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Stock Quantity</label>
+              <input type="number" value={stock} onChange={(e) => setStock(e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full p-3 border rounded-lg">
+                <option>Spirits</option>
+                <option>Beer</option>
+                <option>Wine</option>
+                <option>Soft Drinks</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSaveProduct}
+            disabled={saving}
+            className="w-full py-3 bg-black text-white rounded-lg font-bold disabled:bg-gray-300"
+          >
+            {saving ? "Saving..." : "Save Product"}
+          </button>
+        </div>
+      )}
+
+      {/* Search */}
       <div className="sticky top-0 z-10 py-2 bg-gray-50">
         <input
           type="text"
@@ -120,9 +279,10 @@ export default function InventoryPage() {
         />
       </div>
 
+      {/* Products Table */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="table-container overflow-x-auto">
-          <table className="w-full text-sm min-w-[1000px] sticky-header">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left p-3 font-semibold">Product</th>
@@ -141,17 +301,8 @@ export default function InventoryPage() {
               ) : (
                 filteredProducts.map((product) => {
                   const isLow = product.stock < (product.min_stock || 10);
-                  const isSelected = selectedProduct?.id === product.id;
-                  
                   return (
-                    <tr 
-                      key={product.id} 
-                      className={`transition-colors duration-150 ${
-                        isSelected 
-                          ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' 
-                          : 'hover:bg-gray-50'
-                      }`}
-                    >
+                    <tr key={product.id} className="hover:bg-gray-50">
                       <td className="p-3">
                         <p className="font-medium">{product.name}</p>
                         <p className="text-xs text-gray-400">{product.sku || '-'}</p>
@@ -172,7 +323,7 @@ export default function InventoryPage() {
                           Adjust
                         </button>
                         <button
-                          onClick={() => { setEditingProduct(product); setIsProductModalOpen(true); }}
+                          onClick={() => openEditForm(product)}
                           className="text-gray-600 hover:underline font-medium text-xs"
                         >
                           Edit
@@ -187,6 +338,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      {/* Recent Movements */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="p-4 border-b flex justify-between items-center">
           <h3 className="font-bold text-lg">Recent Stock Movements</h3>
@@ -220,19 +372,21 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <ProductFormModal
-        isOpen={isProductModalOpen}
-        onClose={() => setIsProductModalOpen(false)}
-        onSuccess={handleSuccess}
-        product={editingProduct}
-      />
-
+      {/* Modals */}
       {selectedProduct && (
         <StockAdjustmentModal
           isOpen={isAdjustmentModalOpen}
-          onClose={handleCloseAdjustment}
-          onSuccess={handleSuccess}
+          onClose={() => setIsAdjustmentModalOpen(false)}
+          onSuccess={fetchProducts}
           product={selectedProduct}
+        />
+      )}
+
+      {/* Scanner Modal */}
+      {isScannerOpen && (
+        <BarcodeScanner 
+          onScan={handleBarcodeScan} 
+          onClose={() => setIsScannerOpen(false)} 
         />
       )}
     </div>
