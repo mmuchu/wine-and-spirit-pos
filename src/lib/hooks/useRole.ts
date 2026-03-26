@@ -1,4 +1,4 @@
- // src/lib/hooks/useRole.ts
+// src/lib/hooks/useRole.ts
 import { useOrganization } from "@/lib/context/OrganizationContext";
 
 export function useRole() {
