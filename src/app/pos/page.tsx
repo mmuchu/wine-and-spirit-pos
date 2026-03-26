@@ -169,7 +169,6 @@ export default function POSPage() {
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
     if (!currentShift) { alert("No Active Shift."); return; }
-    // FIX: Guard clause for organizationId
     if (!organizationId) { alert("Configuration Error: No Organization."); return; }
 
     setProcessing(true);
@@ -203,7 +202,8 @@ export default function POSPage() {
         }
         fetchProducts(organizationId);
       } else {
-        savedSale = offlineService.queueSale({ organization_id: organizationId, ...salePayload });
+        // FIX: Removed duplicate organization_id
+        savedSale = offlineService.queueSale(salePayload);
         setProducts(prev => prev.map(p => {
           const inCart = cart.find(c => c.id === p.id);
           if (inCart) return { ...p, stock: p.stock - inCart.quantity };
