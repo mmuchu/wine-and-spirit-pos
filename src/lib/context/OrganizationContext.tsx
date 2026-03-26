@@ -49,7 +49,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           .from('organization_members')
           .select('organization_id, role')
           .eq('user_id', user.id)
-          .maybeSingle(); // Use maybeSingle to avoid error if not found
+          .maybeSingle();
 
         if (member?.organization_id) {
           setOrganizationId(member.organization_id);
@@ -64,39 +64,40 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // 3. SELF-HEALING: If no org found, let's fix it automatically.
+        // 3. SELF-HEALING (Robust Version)
         console.log("No organization found. Attempting auto-setup...");
         
-        // A. Check if 'Kenyan Spirit' org exists
+        // A. Find or Create 'Kenyan Spirit'
+        let targetOrgId: string | undefined;
+        
         const { data: existingOrg } = await supabase
           .from('organizations')
           .select('id')
           .eq('name', 'Kenyan Spirit')
           .maybeSingle();
 
-        let targetOrgId = existingOrg?.id;
-
-        // B. If no org exists, create it
-        if (!targetOrgId) {
-           const { data: newOrg, error: createError } = await supabase
-             .from('organizations')
-             .insert({ name: 'Kenyan Spirit' })
-             .select('id')
-             .single();
-           
-           if (createError) throw createError;
-           targetOrgId = newOrg.id;
+        if (existingOrg) {
+          targetOrgId = existingOrg.id;
+        } else {
+          const { data: newOrg, error: createError } = await supabase
+            .from('organizations')
+            .insert({ name: 'Kenyan Spirit' })
+            .select('id')
+            .single();
+          
+          if (createError) throw createError;
+          targetOrgId = newOrg.id;
         }
 
-        // C. Add user as Admin to this org
+        // B. Add user as Admin (UPSERT to avoid duplicate errors)
         if (targetOrgId) {
-          await supabase.from('organization_members').insert({
+          await supabase.from('organization_members').upsert({
             organization_id: targetOrgId,
             user_id: user.id,
             role: 'admin'
-          });
+          }, { onConflict: 'organization_id, user_id' });
 
-          // D. Update Metadata
+          // C. Update Metadata
           await supabase.auth.updateUser({
             data: { organization_id: targetOrgId, role: 'admin' }
           });
@@ -107,6 +108,9 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
 
       } catch (err) {
         console.error("Org Context Error:", err);
+        // Do not leave it hanging, set null
+        setOrganizationId(null);
+        setUserRole(null);
       } finally {
         setLoading(false);
       }
