@@ -35,18 +35,23 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // MASTER ADMIN BYPASS
-        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
+        // ============================================================
+        // SUPER ADMIN BYPASS (HARDCODED EMAIL)
+        // ============================================================
+        const ADMIN_EMAIL = 'admin@kenyanspirit.com';
         const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-        if (user.id === MASTER_USER_ID) {
+        if (user.email === ADMIN_EMAIL) {
+          console.log("ADMIN ACCESS GRANTED VIA EMAIL");
           setOrganizationId(MASTER_ORG_ID);
           setUserRole('admin');
           setIsLicenseValid(true);
           setLoading(false);
           return;
         }
+        // ============================================================
 
+        // NORMAL USER FLOW
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role;
 
@@ -83,12 +88,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
     loadOrg().then(() => clearTimeout(timeout));
   }, []);
 
-  const value: OrgContextType = {
-    organizationId,
-    userRole,
-    loading,
-    isLicenseValid,
-  };
+  const value = { organizationId, userRole, loading, isLicenseValid };
 
   return (
     <OrganizationContext.Provider value={value}>
