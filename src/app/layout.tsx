@@ -2,8 +2,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { OrganizationProvider } from "@/lib/context/OrganizationContext";
+import { RoleProvider } from "@/lib/hooks/useRole";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,17 +19,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-gray-100`}>
+      <body className={inter.className}>
         <OrganizationProvider>
-          <div className="flex min-h-screen">
-            {/* Sidebar is fixed on the left */}
-            <Sidebar />
-            
-            {/* Main Content Area - pushes right by width of sidebar (w-72) */}
-            <main className="flex-1 lg:ml-72">
-              {children}
-            </main>
-          </div>
+          <RoleProvider>
+            {children}
+          </RoleProvider>
         </OrganizationProvider>
       </body>
     </html>
