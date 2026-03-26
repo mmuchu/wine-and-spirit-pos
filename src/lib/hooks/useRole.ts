@@ -2,11 +2,12 @@
 import { useOrganization } from "@/lib/context/OrganizationContext";
 
 export function useRole() {
-  const { userRole } = useOrganization();
+  const { userRole, loading } = useOrganization();
 
   return {
-    userRole: userRole, // Keep this name for Sidebar compatibility
+    userRole: userRole,
     role: userRole,
+    loading: loading, // This was missing, causing the error
     isAdmin: userRole === 'admin' || userRole === 'owner',
     isManager: userRole === 'manager' || userRole === 'admin' || userRole === 'owner',
     isOwner: userRole === 'owner',
