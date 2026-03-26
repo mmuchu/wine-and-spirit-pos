@@ -1,7 +1,7 @@
  // src/app/pos/page.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
@@ -13,8 +13,7 @@ import { offlineService } from "@/lib/services/offlineService";
 
 export default function POSPage() {
   const supabase = createClient();
-  const { organizationId } = useOrganization();
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const { organizationId, loading: orgLoading } = useOrganization();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
@@ -36,65 +35,47 @@ export default function POSPage() {
   const [shopAddress, setShopAddress] = useState("Nairobi, Kenya");
   const [shopPhone, setShopPhone] = useState("");
 
-  // --- OFFLINE STATE ---
+  // Network Status
   const [isOnline, setIsOnline] = useState(offlineService.isOnline());
   const [pendingCount, setPendingCount] = useState(0);
 
+  // --- EFFECTS ---
+
+  // 1. Wait for Context, then Load Data
   useEffect(() => {
-    if (organizationId) {
-      fetchProducts();
-      fetchSettings();
-      fetchActiveShift();
+    // If context is still loading, wait
+    if (orgLoading) return;
+
+    // If context loaded but NO organization ID, stop loading and show error
+    if (!organizationId) {
+      setLoading(false);
+      return;
     }
-  }, [organizationId]);
 
-  // --- OFFLINE EFFECTS ---
+    // If we have ID, load everything
+    loadInitialData(organizationId);
+
+  }, [organizationId, orgLoading]);
+
+  // 2. Network Listeners
   useEffect(() => {
-    const updateNetworkStatus = () => {
-      const online = navigator.onLine;
-      setIsOnline(online);
-      
-      if (online) {
-        // Just came online, try to sync
-        processQueue();
-      }
+    const handleOnline = () => {
+      setIsOnline(true);
+      processOfflineQueue();
     };
+    const handleOffline = () => setIsOnline(false);
 
-    window.addEventListener("online", updateNetworkStatus);
-    window.addEventListener("offline", updateNetworkStatus);
-
-    // Initial count
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
     updatePendingCount();
 
     return () => {
-      window.removeEventListener("online", updateNetworkStatus);
-      window.removeEventListener("offline", updateNetworkStatus);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, [organizationId]);
 
-  const updatePendingCount = () => {
-    setPendingCount(offlineService.getQueue().length);
-  };
-
-  const processQueue = async () => {
-    if (!organizationId) return;
-    const result = await offlineService.syncQueue(supabase, organizationId);
-    updatePendingCount();
-    if (result.synced > 0) {
-      fetchProducts(); // Refresh stock from server
-    }
-  };
-
-  const fetchActiveShift = async () => {
-    if (!organizationId) return;
-    try {
-      const shift = await shiftService.getCurrentShift(organizationId);
-      setCurrentShift(shift);
-    } catch (err) {
-      console.error("Error checking shift", err);
-    }
-  };
-
+  // 3. Search Filter
   useEffect(() => {
     if (searchTerm.trim() === "") {
       setFilteredProducts([]);
@@ -110,14 +91,29 @@ export default function POSPage() {
     }
   }, [searchTerm, products]);
 
-  const fetchProducts = async () => {
-    if (!organizationId) return;
+  // --- DATA LOADERS ---
+
+  const loadInitialData = async (orgId: string) => {
     setLoading(true);
+    try {
+      await Promise.all([
+        fetchProducts(orgId),
+        fetchSettings(orgId),
+        fetchActiveShift(orgId)
+      ]);
+    } catch (err) {
+      console.error("Initial Load Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchProducts = async (orgId: string) => {
     try {
       const { data, error } = await supabase
         .from("products")
-        .select("*, categories(name)")
-        .eq("organization_id", organizationId)
+        .select("id, name, price, stock, sku, category_id, is_active")
+        .eq("organization_id", orgId)
         .eq("is_active", true)
         .order("name");
 
@@ -125,30 +121,46 @@ export default function POSPage() {
       setProducts(data || []);
     } catch (err) {
       console.error("Error fetching products:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const fetchSettings = async () => {
-    if (!organizationId) return;
-    const { data } = await supabase.from('settings').select('*').eq('organization_id', organizationId).single();
-    if (data) {
-      setVatEnabled(data.vat_enabled ?? true);
-      setShopName(data.shop_name || "KENYAN SPIRIT");
-      setShopAddress(data.address || "Nairobi, Kenya");
-      setShopPhone(data.phone || "");
-    }
-  };
-
-  const focusCartInput = (productId: string) => {
-    setTimeout(() => {
-      const input = document.getElementById(`cart-input-${productId}`);
-      if (input) {
-        input.focus();
-        (input as HTMLInputElement).select();
+  const fetchSettings = async (orgId: string) => {
+    try {
+      const { data } = await supabase.from('settings').select('*').eq('organization_id', orgId).maybeSingle();
+      if (data) {
+        setVatEnabled(data.vat_enabled ?? true);
+        setShopName(data.shop_name || "KENYAN SPIRIT");
+        setShopAddress(data.address || "Nairobi, Kenya");
+        setShopPhone(data.phone || "");
       }
-    }, 50);
+    } catch (err) {
+      console.error("Error fetching settings:", err);
+    }
+  };
+
+  const fetchActiveShift = async (orgId: string) => {
+    try {
+      const shift = await shiftService.getCurrentShift(orgId);
+      setCurrentShift(shift);
+    } catch (err) {
+      console.error("Error checking shift", err);
+    }
+  };
+
+  // --- HELPERS ---
+
+  const updatePendingCount = () => {
+    const queue = offlineService.getQueue();
+    setPendingCount(queue.length);
+  };
+
+  const processOfflineQueue = async () => {
+    if (!organizationId) return;
+    const result = await offlineService.syncQueue(supabase, organizationId);
+    updatePendingCount();
+    if (result.synced > 0) {
+      fetchProducts(organizationId);
+    }
   };
 
   const addToCart = (product: Product) => {
@@ -163,14 +175,8 @@ export default function POSPage() {
       }
       return [...prev, { ...product, quantity: 1 } as CartItem];
     });
-    
     setSearchTerm("");
     setFilteredProducts([]);
-    focusCartInput(product.id);
-  };
-
-  const handleRowClick = (productId: string) => {
-    focusCartInput(productId);
   };
 
   const updateQuantity = (id: string, quantity: number) => {
@@ -183,15 +189,14 @@ export default function POSPage() {
     }
   };
 
-  const subtotal = cart.reduce((sum, item) => {
-    const price = Number(item.price) || 0;
-    const qty = Number(item.quantity) || 0;
-    return sum + (price * qty);
-  }, 0);
-  
+  // --- CALCULATIONS ---
+
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const tax = vatEnabled ? subtotal * 0.16 : 0;
   const total = subtotal + tax;
   const change = parseFloat(cashReceived) - total;
+
+  // --- SALE HANDLERS ---
 
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
@@ -201,13 +206,11 @@ export default function POSPage() {
       return;
     }
 
-    // Skip stock validation if offline (optimistic)
     if (isOnline) {
       for (const item of cart) {
         const product = products.find((p) => p.id === item.id);
-        if (!product) continue;
-        if (product.stock < item.quantity) {
-          alert(`Insufficient stock for "${item.name}". \nAvailable: ${product.stock}, Requested: ${item.quantity}`);
+        if (product && product.stock < item.quantity) {
+          alert(`Insufficient stock for "${item.name}".`);
           return;
         }
       }
@@ -218,6 +221,7 @@ export default function POSPage() {
       const { data: { user } } = await supabase.auth.getUser();
 
       const salePayload = {
+        organization_id: organizationId,
         user_id: user?.id,
         total_amount: total,
         subtotal: subtotal,
@@ -237,44 +241,34 @@ export default function POSPage() {
       let savedSale: any;
 
       if (isOnline) {
-        // --- ONLINE FLOW ---
         const { data, error } = await supabase
           .from("sales")
-          .insert({
-            organization_id: organizationId,
-            ...salePayload
-          })
+          .insert(salePayload)
           .select()
           .single();
 
         if (error) throw error;
         savedSale = data;
 
-        // Update Stock in DB
-        const stockPromises = cart.map((item) => {
+        for (const item of cart) {
           const product = products.find((p) => p.id === item.id);
           if (product) {
-            return supabase
+            await supabase
               .from("products")
               .update({ stock: product.stock - item.quantity })
               .eq("id", item.id);
           }
-          return Promise.resolve();
-        });
-        await Promise.all(stockPromises);
-
-        auditService.log("SALE_ONLINE", `Sold ${cart.length} items for ${formatCurrency(total)}`, organizationId);
+        }
         
-        fetchProducts(); // Refresh from server
+        auditService.log("SALE_ONLINE", `Sold ${cart.length} items for ${formatCurrency(total)}`, organizationId);
+        fetchProducts(organizationId);
 
       } else {
-        // --- OFFLINE FLOW ---
         savedSale = offlineService.queueSale({
           organization_id: organizationId,
           ...salePayload
         });
 
-        // Optimistic UI Update (Update local stock state)
         setProducts(prev => prev.map(p => {
           const inCart = cart.find(c => c.id === p.id);
           if (inCart) {
@@ -282,7 +276,8 @@ export default function POSPage() {
           }
           return p;
         }));
-
+        
+        alert("You are OFFLINE. Sale saved locally.");
         auditService.log("SALE_OFFLINE", `Queued offline sale`, organizationId);
       }
 
@@ -307,7 +302,18 @@ export default function POSPage() {
     }
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-gray-100 text-gray-500">Loading POS...</div>;
+  // --- RENDER ---
+
+  if (orgLoading) return <div className="p-8">Initializing...</div>;
+  
+  if (!organizationId) return (
+    <div className="p-8 text-center space-y-4">
+      <h2 className="text-xl font-bold text-red-600">Configuration Error</h2>
+      <p className="text-gray-500">Organization context missing. Please check setup.</p>
+    </div>
+  );
+
+  if (loading) return <div className="p-8">Loading POS...</div>;
 
   if (!currentShift && !loading) {
     return (
@@ -318,55 +324,23 @@ export default function POSPage() {
     );
   }
 
-  const renderProductGrid = (items: Product[]) => (
-    <div className="grid grid-cols-2 gap-4 p-6">
-      {items.map((product) => (
-        <button
-          key={product.id}
-          onClick={() => addToCart(product)}
-          disabled={product.stock <= 0}
-          className={`group relative bg-white rounded-xl border transition-all duration-150 text-left h-36 flex flex-col justify-between overflow-hidden ${
-            product.stock <= 0 
-              ? "opacity-50 cursor-not-allowed bg-gray-50 border-gray-100" 
-              : "border-gray-200 hover:border-black hover:shadow-lg hover:-translate-y-0.5"
-          }`}
-        >
-          <div className="p-4 flex-1 flex flex-col justify-between">
-            <div>
-              <p className="font-bold text-sm text-gray-800 line-clamp-2 leading-tight">{product.name}</p>
-              <p className="text-xs text-gray-400 mt-1 uppercase tracking-wide">{product.categories?.name || 'General'}</p>
-            </div>
-            <div className="flex items-end justify-between mt-2">
-              <p className="text-lg font-extrabold text-gray-900">{formatCurrency(product.price)}</p>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                product.stock <= 0 ? 'bg-gray-100 text-gray-400' : 
-                product.stock <= 5 ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-500'
-              }`}>
-                {product.stock <= 0 ? 'Empty' : `${product.stock} left`}
-              </span>
-            </div>
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <div className="flex h-screen bg-gray-100 font-sans text-gray-800">
       
       {/* OFFLINE BANNERS */}
       {!isOnline && (
-        <div className="fixed top-0 left-0 right-0 bg-orange-600 text-white text-center py-2 z-[100] font-bold text-sm shadow-lg print:hidden">
+        <div className="fixed top-0 left-0 right-0 bg-orange-600 text-white text-center py-2 z-[100] font-bold text-sm shadow-lg">
           ⚠️ YOU ARE OFFLINE. Sales will be saved locally. ({pendingCount} pending)
         </div>
       )}
       {isOnline && pendingCount > 0 && (
-        <div className="fixed top-0 left-0 right-0 bg-blue-600 text-white text-center py-2 z-[100] font-bold text-sm shadow-lg print:hidden">
+        <div className="fixed top-0 left-0 right-0 bg-blue-600 text-white text-center py-2 z-[100] font-bold text-sm shadow-lg">
           🔄 Syncing {pendingCount} pending sales...
         </div>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden relative pt-8"> {/* Add padding top if banner exists */}
+      {/* Left Side: Product Grid */}
+      <div className="flex-1 flex flex-col overflow-hidden relative pt-8">
         
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Sales Terminal</h1>
@@ -377,7 +351,6 @@ export default function POSPage() {
 
         <div className="p-4 bg-gray-50 border-b">
           <input
-            ref={searchInputRef}
             type="text"
             placeholder="Search products by name or scan barcode..."
             value={searchTerm}
@@ -388,17 +361,55 @@ export default function POSPage() {
 
         <div className="flex-1 overflow-y-auto bg-gray-50">
           {searchTerm && filteredProducts.length > 0 ? (
-            renderProductGrid(filteredProducts)
-          ) : searchTerm && filteredProducts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-2">
-              <p className="font-medium">No products found</p>
+            <div className="grid grid-cols-2 gap-4 p-6">
+              {filteredProducts.map(product => (
+                 <button
+                   key={product.id}
+                   onClick={() => addToCart(product)}
+                   disabled={product.stock <= 0}
+                   className={`group relative bg-white rounded-xl border text-left h-36 flex flex-col justify-between overflow-hidden ${
+                     product.stock <= 0 
+                       ? "opacity-50 cursor-not-allowed bg-gray-50" 
+                       : "hover:border-black hover:shadow-lg"
+                   }`}
+                 >
+                   <div className="p-4 flex-1 flex flex-col justify-between">
+                     <p className="font-bold text-sm text-gray-800 line-clamp-2">{product.name}</p>
+                     <p className="text-lg font-extrabold text-gray-900">{formatCurrency(product.price)}</p>
+                   </div>
+                 </button>
+              ))}
             </div>
+          ) : searchTerm ? (
+             <div className="p-8 text-center text-gray-400">No products found.</div>
           ) : (
-            renderProductGrid(products)
+            <div className="grid grid-cols-2 gap-4 p-6">
+              {products.map(product => (
+                 <button
+                   key={product.id}
+                   onClick={() => addToCart(product)}
+                   disabled={product.stock <= 0}
+                   className={`group relative bg-white rounded-xl border text-left h-36 flex flex-col justify-between overflow-hidden ${
+                     product.stock <= 0 
+                       ? "opacity-50 cursor-not-allowed bg-gray-50" 
+                       : "hover:border-black hover:shadow-lg"
+                   }`}
+                 >
+                   <div className="p-4 flex-1 flex flex-col justify-between">
+                     <p className="font-bold text-sm text-gray-800 line-clamp-2">{product.name}</p>
+                     <div className="flex items-end justify-between mt-2">
+                       <p className="text-lg font-extrabold text-gray-900">{formatCurrency(product.price)}</p>
+                       <span className="text-xs text-gray-500">{product.stock} in stock</span>
+                     </div>
+                   </div>
+                 </button>
+              ))}
+            </div>
           )}
         </div>
       </div>
 
+      {/* Right Side: Cart */}
       <div className="w-[420px] bg-white border-l border-gray-200 flex flex-col h-screen shadow-2xl">
         
         <div className="px-6 py-5 border-b border-gray-100 bg-white shrink-0">
@@ -408,7 +419,7 @@ export default function POSPage() {
               <p className="text-xs text-gray-400 mt-0.5">{cart.length} items in cart</p>
             </div>
             {cart.length > 0 && (
-              <button onClick={() => setCart([])} className="text-xs font-medium text-red-500 hover:text-red-600">
+              <button onClick={() => setCart([])} className="text-xs font-medium text-red-500">
                 Clear All
               </button>
             )}
@@ -422,36 +433,21 @@ export default function POSPage() {
             </div>
           ) : (
             cart.map((item) => (
-              <div 
-                key={item.id} 
-                onClick={() => handleRowClick(item.id)}
-                className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex items-center gap-3 cursor-pointer"
-              >
+              <div key={item.id} className="bg-white rounded-lg p-3 shadow-sm border flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-gray-800 truncate">{item.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(item.price)} each</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <button 
-                    onClick={(e) => { e.stopPropagation(); updateQuantity(item.id, item.quantity - 1); }} 
-                    className="w-7 h-7 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs transition"
-                  >
-                    -
-                  </button>
-                  <input
-                    id={`cart-input-${item.id}`}
-                    type="number"
-                    value={item.quantity}
-                    onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-10 text-center font-bold text-sm border rounded focus:ring-2 focus:ring-black"
-                  />
+                    onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                    className="w-7 h-7 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs"
+                  >-</button>
+                  <span className="w-8 text-center font-bold text-sm">{item.quantity}</span>
                   <button 
-                    onClick={(e) => { e.stopPropagation(); updateQuantity(item.id, item.quantity + 1); }} 
-                    className="w-7 h-7 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs transition"
-                  >
-                    +
-                  </button>
+                    onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                    className="w-7 h-7 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs"
+                  >+</button>
                 </div>
                 <div className="w-20 text-right">
                   <p className="font-bold text-sm">{formatCurrency(item.price * item.quantity)}</p>
@@ -487,8 +483,8 @@ export default function POSPage() {
               onClick={() => setPaymentMethod("cash")}
               className={`py-3 rounded-lg font-bold text-sm border-2 transition-all ${
                 paymentMethod === "cash" 
-                  ? "bg-black text-white border-black shadow-md" 
-                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                  ? "bg-black text-white border-black" 
+                  : "bg-white text-gray-600 border-gray-200"
               }`}
             >
               Cash
@@ -497,8 +493,8 @@ export default function POSPage() {
               onClick={() => setPaymentMethod("mpesa")}
               className={`py-3 rounded-lg font-bold text-sm border-2 transition-all ${
                 paymentMethod === "mpesa" 
-                  ? "bg-green-600 text-white border-green-600 shadow-md" 
-                  : "bg-white text-gray-600 border-gray-200 hover:border-green-200"
+                  ? "bg-green-600 text-white border-green-600" 
+                  : "bg-white text-gray-600 border-gray-200"
               }`}
             >
               M-Pesa
@@ -530,7 +526,7 @@ export default function POSPage() {
           <button
             onClick={handleCompleteSale}
             disabled={processing || cart.length === 0}
-            className="w-full py-5 bg-red-600 text-white rounded-xl font-extrabold text-lg disabled:bg-gray-200 disabled:text-gray-400 shadow-[0_4px_20px_-5px_rgba(220,38,38,0.5)] hover:shadow-[0_6px_25px_-5px_rgba(220,38,38,0.6)] transition-all active:scale-[0.99] disabled:active:scale-100 uppercase tracking-wide"
+            className="w-full py-5 bg-red-600 text-white rounded-xl font-extrabold text-lg disabled:bg-gray-200 disabled:text-gray-400 shadow-lg hover:shadow-xl transition-all uppercase tracking-wide"
           >
             {processing ? "Processing..." : "Complete Sale"}
           </button>
