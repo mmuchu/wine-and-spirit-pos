@@ -33,49 +33,78 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // ==============================================
-        // ULTIMATE SAFETY NET
-        // If you are this user, you ARE the admin.
-        // ==============================================
-        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
-        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
-        if (user.id === MASTER_USER_ID) {
-          console.log("Master User recognized. Granting Admin access.");
-          setOrganizationId(MASTER_ORG_ID);
-          setUserRole('admin');
-          setLoading(false);
-          return;
-        }
-
-        // --- Normal Flow for other users ---
-        
-        // 1. Check Metadata
+        // 1. Check Metadata (Fastest)
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role;
 
         if (orgId) {
           setOrganizationId(orgId);
-          setUserRole(role || 'cashier');
+          setUserRole(role || 'admin');
           setLoading(false);
           return;
         }
 
-        // 2. Fallback: Check DB
+        // 2. Check organization_members table
         const { data: member } = await supabase
           .from('organization_members')
           .select('organization_id, role')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle(); // Use maybeSingle to avoid error if not found
 
         if (member?.organization_id) {
           setOrganizationId(member.organization_id);
-          setUserRole(member.role || 'cashier');
-        } else {
-          // No org found
-          setOrganizationId(null);
-          setUserRole(null);
+          setUserRole(member.role || 'admin');
+          
+          // Save to metadata for speed
+          await supabase.auth.updateUser({
+            data: { organization_id: member.organization_id, role: member.role }
+          });
+          
+          setLoading(false);
+          return;
         }
+
+        // 3. SELF-HEALING: If no org found, let's fix it automatically.
+        console.log("No organization found. Attempting auto-setup...");
+        
+        // A. Check if 'Kenyan Spirit' org exists
+        const { data: existingOrg } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('name', 'Kenyan Spirit')
+          .maybeSingle();
+
+        let targetOrgId = existingOrg?.id;
+
+        // B. If no org exists, create it
+        if (!targetOrgId) {
+           const { data: newOrg, error: createError } = await supabase
+             .from('organizations')
+             .insert({ name: 'Kenyan Spirit' })
+             .select('id')
+             .single();
+           
+           if (createError) throw createError;
+           targetOrgId = newOrg.id;
+        }
+
+        // C. Add user as Admin to this org
+        if (targetOrgId) {
+          await supabase.from('organization_members').insert({
+            organization_id: targetOrgId,
+            user_id: user.id,
+            role: 'admin'
+          });
+
+          // D. Update Metadata
+          await supabase.auth.updateUser({
+            data: { organization_id: targetOrgId, role: 'admin' }
+          });
+
+          setOrganizationId(targetOrgId);
+          setUserRole('admin');
+        }
+
       } catch (err) {
         console.error("Org Context Error:", err);
       } finally {
@@ -85,9 +114,9 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
 
     // Safety Timeout
     const timeout = setTimeout(() => {
-      console.warn("Context timeout - forcing load end");
+      console.warn("Context timeout");
       setLoading(false);
-    }, 2000);
+    }, 5000);
 
     loadOrg().then(() => clearTimeout(timeout));
   }, []);
