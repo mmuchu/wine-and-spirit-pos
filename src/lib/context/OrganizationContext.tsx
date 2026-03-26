@@ -1,5 +1,4 @@
- // src/lib/context/OrganizationContext.tsx
-"use client";
+ "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -36,24 +35,18 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // DEBUG: Show us exactly what ID is coming from Supabase
-        const myId = 'ea6cf402-8116-4440-9d40-446454366071';
-        
-        console.log("DEBUG - User ID:", user.id);
-        console.log("DEBUG - Master ID:", myId);
-        console.log("DEBUG - Match:", user.id === myId);
-        
         // MASTER ADMIN BYPASS
-        if (user.id === myId) {
-          console.log("MASTER ADMIN ACCESS GRANTED");
-          setOrganizationId('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
+        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
+        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+
+        if (user.id === MASTER_USER_ID) {
+          setOrganizationId(MASTER_ORG_ID);
           setUserRole('admin');
           setIsLicenseValid(true);
           setLoading(false);
           return;
         }
 
-        // NORMAL FLOW
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role;
 
@@ -65,7 +58,6 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // DB CHECK
         const { data: member } = await supabase
           .from('organization_members')
           .select('organization_id, role')
@@ -77,10 +69,11 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           setUserRole(member.role || 'admin');
           setIsLicenseValid(true);
         } else {
-          console.error("NO ORG FOUND FOR USER");
+          setOrganizationId(null);
+          setUserRole(null);
         }
       } catch (err) {
-        console.error("CTX ERROR:", err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
@@ -90,8 +83,15 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
     loadOrg().then(() => clearTimeout(timeout));
   }, []);
 
+  const value: OrgContextType = {
+    organizationId,
+    userRole,
+    loading,
+    isLicenseValid,
+  };
+
   return (
-    <OrganizationContext.Provider value={{ organizationId, userRole, loading, isLicenseValid }}>
+    <OrganizationContext.Provider value={value}>
       {children}
     </OrganizationContext.Provider>
   );
