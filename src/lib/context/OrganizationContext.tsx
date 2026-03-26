@@ -37,36 +37,32 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
         }
 
         // =============================================================
-        // NUCLEAR FIX: MASTER ADMIN CHECK
-        // If this is YOU, we hardcode the values immediately.
+        // MASTER ADMIN FIX (BYPASS RLS ISSUES)
         // =============================================================
-        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071'; // Your ID
-        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'; // Org ID
+        const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
+        const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
         if (user.id === MASTER_USER_ID) {
-          console.log("Master Admin recognized. Forcing Admin Access.");
+          console.log("Master Admin recognized.");
           setOrganizationId(MASTER_ORG_ID);
           setUserRole('admin');
-          setIsLicenseValid(true); // You always have license
+          setIsLicenseValid(true);
           setLoading(false);
-          return; // STOP HERE. No DB queries needed for Admin.
+          return;
         }
 
-        // --- NORMAL USER LOGIC BELOW ---
-        
-        // 1. Check Metadata
+        // --- Normal User Flow ---
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role;
 
         if (orgId) {
           setOrganizationId(orgId);
-          setUserRole(role || 'admin');
+          setUserRole(role || 'cashier');
           await checkLicense(orgId);
           setLoading(false);
           return;
         }
 
-        // 2. Check organization_members table
         const { data: member } = await supabase
           .from('organization_members')
           .select('organization_id, role')
@@ -75,7 +71,7 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
 
         if (member?.organization_id) {
           setOrganizationId(member.organization_id);
-          setUserRole(member.role || 'admin');
+          setUserRole(member.role || 'cashier');
           
           await supabase.auth.updateUser({
             data: { organization_id: member.organization_id, role: member.role }
@@ -83,7 +79,6 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           
           await checkLicense(member.organization_id);
         } else {
-          // No org found
           setOrganizationId(null);
           setUserRole(null);
         }
@@ -96,36 +91,13 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
 
     const checkLicense = async (orgId: string) => {
       try {
-        const { data, error } = await supabase
-          .from('settings')
-          .select('license_expires_at')
-          .eq('organization_id', orgId)
-          .maybeSingle();
-
-        if (error) throw error;
-
-        if (!data) {
-           setIsLicenseValid(true);
-           return;
-        }
-
-        if (!data.license_expires_at) {
-          setIsLicenseValid(true);
-        } else {
-          const isExpired = new Date(data.license_expires_at) < new Date();
-          setIsLicenseValid(!isExpired);
-        }
-      } catch (err) {
-        console.error("License check failed", err);
-        setIsLicenseValid(true);
-      }
+        const { data } = await supabase.from('settings').select('license_expires_at').eq('organization_id', orgId).maybeSingle();
+        if (!data || !data.license_expires_at) setIsLicenseValid(true);
+        else setIsLicenseValid(new Date(data.license_expires_at) > new Date());
+      } catch { setIsLicenseValid(true); }
     };
 
-    const timeout = setTimeout(() => {
-      console.warn("Context timeout");
-      setLoading(false);
-    }, 5000);
-
+    const timeout = setTimeout(() => setLoading(false), 5000);
     loadOrg().then(() => clearTimeout(timeout));
   }, []);
 
