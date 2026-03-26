@@ -1,4 +1,3 @@
- // src/lib/context/OrganizationContext.tsx
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
@@ -36,14 +35,11 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // =============================================================
-        // MASTER ADMIN FIX (BYPASS RLS ISSUES)
-        // =============================================================
+        // MASTER ADMIN BYPASS
         const MASTER_USER_ID = 'ea6cf402-8116-4440-9d40-446454366071';
         const MASTER_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
         if (user.id === MASTER_USER_ID) {
-          console.log("Master Admin recognized.");
           setOrganizationId(MASTER_ORG_ID);
           setUserRole('admin');
           setIsLicenseValid(true);
@@ -51,13 +47,12 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // --- Normal User Flow ---
         const orgId = user.user_metadata?.organization_id;
         const role = user.user_metadata?.role;
 
         if (orgId) {
           setOrganizationId(orgId);
-          setUserRole(role || 'cashier');
+          setUserRole(role || 'admin');
           await checkLicense(orgId);
           setLoading(false);
           return;
@@ -71,19 +66,15 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
 
         if (member?.organization_id) {
           setOrganizationId(member.organization_id);
-          setUserRole(member.role || 'cashier');
-          
-          await supabase.auth.updateUser({
-            data: { organization_id: member.organization_id, role: member.role }
-          });
-          
+          setUserRole(member.role || 'admin');
+          await supabase.auth.updateUser({ data: { organization_id: member.organization_id, role: member.role } });
           await checkLicense(member.organization_id);
         } else {
           setOrganizationId(null);
           setUserRole(null);
         }
       } catch (err) {
-        console.error("Org Context Error:", err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
