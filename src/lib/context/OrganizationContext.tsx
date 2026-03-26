@@ -35,18 +35,12 @@ export const OrganizationProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
-        // ============================================================
-        // NUCLEAR FIX: FORCE ORG ID FOR ALL LOGGED-IN USERS
-        // ============================================================
+        // FORCED ORG ID FOR TESTING
         const FORCED_ORG_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
         
-        console.log("NUCLEAR FIX: Forcing Organization ID");
         setOrganizationId(FORCED_ORG_ID);
         setUserRole('admin');
         setIsLicenseValid(true);
-        setLoading(false);
-        return;
-        // ============================================================
 
       } catch (err) {
         console.error(err);
