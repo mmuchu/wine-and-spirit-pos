@@ -31,7 +31,7 @@ export default function AdminPortal() {
       if (error) throw error;
 
       // 2. Calculate Revenue for each client
-      const clientsWithRevenue = await Promise.all((settingsData || []).map(async (client) => {
+      const clientsWithRevenue = await Promise.all((settingsData || []).map(async (client: any) => {
         const { data: sales } = await supabase
           .from('sales')
           .select('total_amount')
@@ -82,7 +82,6 @@ export default function AdminPortal() {
   if (!loggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        {/* REMOVED bg-[url('/grid.svg')] to fix 404 */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center">
           <div className="w-20 h-20 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
              <span className="text-white text-4xl font-bold">A</span>
