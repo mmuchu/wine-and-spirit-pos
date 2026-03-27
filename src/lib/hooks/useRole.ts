@@ -1,4 +1,5 @@
-﻿import { useOrganization } from "@/lib/context/OrganizationContext";
+﻿ // src/lib/hooks/useRole.ts
+import { useOrganization } from "@/lib/context/OrganizationContext";
 
 export function useRole() {
   const { userRole, loading } = useOrganization();

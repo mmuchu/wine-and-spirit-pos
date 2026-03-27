@@ -4,208 +4,291 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
-import { shiftService } from "@/lib/services/shiftService";
 import { formatCurrency } from "@/components/pos/utils";
 
-type ActivityEvent = {
-  id: string;
-  time: string;
-  type: 'sale' | 'expense' | 'stock' | 'shift_open' | 'shift_close';
-  description: string;
-  amount?: number;
-  meta?: string;
-  icon: string;
-};
-
-export default function AuditPage() {
+export default function DailyAuditPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-
+  
+  const [shifts, setShifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [shift, setShift] = useState<any>(null);
-  const [activities, setActivities] = useState<ActivityEvent[]>([]);
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedShift, setSelectedShift] = useState<any | null>(null);
+  
+  // Summary State
+  const [summary, setSummary] = useState({ sales: 0, expenses: 0, cash: 0, mpesa: 0 });
+  const [activities, setActivities] = useState<any[]>([]);
 
   useEffect(() => {
-    if (organizationId) loadAuditData();
-  }, [organizationId]);
+    if (organizationId) fetchAuditData();
+  }, [organizationId, date]);
 
-  const loadAuditData = async () => {
+  const fetchAuditData = async () => {
+    if (!organizationId) return;
     setLoading(true);
     try {
-      // 1. Get Active Shift
-      const currentShift = await shiftService.getCurrentShift(organizationId);
-      setShift(currentShift);
+      // Define Date Range
+      const start = new Date(date);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(date);
+      end.setHours(23, 59, 59, 999);
 
-      if (!currentShift) {
-        setLoading(false);
-        return;
-      }
+      // 1. Fetch Sales
+      const { data: sales } = await supabase
+        .from('sales')
+        .select('id, created_at, total_amount, payment_method, status')
+        .eq('organization_id', organizationId)
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
 
-      // 2. Fetch All Data in Parallel
-      const [salesRes, expensesRes, stockRes] = await Promise.all([
-        // Fetch Sales
-        supabase
-          .from('sales')
-          .select('id, created_at, total_amount, payment_method, status, items')
-          .eq('shift_id', currentShift.id)
-          .order('created_at', { ascending: false }),
-        // Fetch Expenses
-        supabase
-          .from('expenses')
-          .select('id, created_at, amount, category, description')
-          .eq('shift_id', currentShift.id)
-          .order('created_at', { ascending: false }),
-        // Fetch Stock Movements
-        supabase
-          .from('stock_movements')
-          .select('id, created_at, quantity, type, total_cost, notes, products(name)')
-          .eq('shift_id', currentShift.id)
-          .order('created_at', { ascending: false }),
-      ]);
+      // 2. Fetch Expenses
+      const { data: expenses } = await supabase
+        .from('expenses')
+        .select('id, created_at, amount, category, notes')
+        .eq('organization_id', organizationId)
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
 
-      const sales = salesRes.data || [];
-      const expenses = expensesRes.data || [];
-      const stock = stockRes.data || [];
+      // 3. Fetch Shifts
+      const { data: shiftsData } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .or(`opened_at.gte.${start.toISOString()},closed_at.gte.${start.toISOString()}`);
 
-      // 3. Map to Activity Events
-      const events: ActivityEvent[] = [];
+      // Calculate Summary
+      const salesTotal = sales?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+      const expensesTotal = expenses?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
+      const cashTotal = sales?.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+      const mpesaTotal = sales?.filter(s => s.payment_method === 'mpesa').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
 
-      // Shift Open Event
-      events.push({
-        id: `shift-${currentShift.id}-open`,
-        time: currentShift.opened_at,
-        type: 'shift_open',
-        description: `Shift Started`,
-        amount: currentShift.opening_cash,
-        meta: `Opening Cash`,
-        icon: '🟢'
+      setSummary({
+        sales: salesTotal,
+        expenses: expensesTotal,
+        cash: cashTotal,
+        mpesa: mpesaTotal
       });
 
-      // Sales Events
-      sales.forEach(s => {
-        const itemCount = s.items?.length || 0;
-        events.push({
-          id: s.id,
-          time: s.created_at,
+      // Build Timeline
+      const timeline: any[] = [];
+
+      sales?.forEach(s => {
+        timeline.push({
+          time: new Date(s.created_at),
           type: 'sale',
-          description: `SALE (${s.payment_method.toUpperCase()}) - ${itemCount} items`,
-          amount: s.total_amount,
-          meta: s.status,
-          icon: '💰'
+          icon: '💵',
+          title: `Sale (${s.payment_method?.toUpperCase()})`,
+          description: `Total: ${formatCurrency(s.total_amount)}`,
+          amount: s.total_amount
         });
       });
 
-      // Expense Events
-      expenses.forEach(e => {
-        events.push({
-          id: e.id,
-          time: e.created_at,
+      expenses?.forEach(e => {
+        timeline.push({
+          time: new Date(e.created_at),
           type: 'expense',
-          description: `EXPENSE - ${e.category || 'General'}`,
-          amount: e.amount,
-          meta: e.description,
-          icon: '💸'
+          icon: '📉',
+          title: `Expense: ${e.category || 'General'}`,
+          description: e.notes || 'No note',
+          amount: -e.amount
         });
       });
 
-      // Stock Events
-      stock.forEach(m => {
-        const productName = (m.products as any)?.name || 'Unknown Product';
-        events.push({
-          id: m.id,
-          time: m.created_at,
-          type: 'stock',
-          description: `STOCK ${m.type.toUpperCase()} - ${productName}`,
-          amount: m.total_cost || 0,
-          meta: `Qty: ${m.quantity} ${m.notes ? `(${m.notes})` : ''}`,
-          icon: m.type === 'purchase' ? '📦' : '📝'
-        });
+      shiftsData?.forEach(sh => {
+        if (new Date(sh.opened_at) >= start) {
+          timeline.push({
+            time: new Date(sh.opened_at),
+            type: 'shift_open',
+            icon: '🟢',
+            title: 'Shift Opened',
+            description: `Opening Cash: ${formatCurrency(sh.opening_cash || 0)}`,
+            amount: 0
+          });
+        }
+        if (sh.closed_at && new Date(sh.closed_at) >= start) {
+          timeline.push({
+            time: new Date(sh.closed_at),
+            type: 'shift_close',
+            icon: '🔴',
+            title: 'Shift Closed',
+            description: `Closing Cash: ${formatCurrency(sh.closing_cash || 0)}`,
+            amount: 0
+          });
+        }
       });
 
-      // 4. Sort by Time (Newest First)
-      events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-
-      setActivities(events);
+      // Sort Timeline
+      timeline.sort((a, b) => b.time.getTime() - a.time.getTime());
+      
+      setActivities(timeline);
+      setShifts(shiftsData || []);
 
     } catch (err) {
-      console.error("Audit error", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const getVarianceSummary = (shift: any) => {
+    if (!shift.closing_stock || !shift.opening_stock) return { count: 0, hasVariance: false };
+    let varianceCount = 0;
+    Object.keys(shift.closing_stock).forEach(key => {
+      const opening = shift.opening_stock[key] || 0;
+      const closing = shift.closing_stock[key];
+      if (opening !== closing) varianceCount++;
+    });
+    return { count: varianceCount, hasVariance: varianceCount > 0 };
   };
 
-  if (loading) return <div className="p-8">Loading Activity Log...</div>;
-  if (!shift) return <div className="p-8 text-center space-y-4">
-    <h2 className="text-xl font-bold">No Active Shift</h2>
-    <p className="text-gray-500">Start a shift to see the daily audit trail.</p>
-  </div>;
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
 
-  return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
-      
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Daily Audit Trail</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Real-time log of all system activities for this shift.
-          </p>
+  if (loading) return <div className="p-8">Loading Audit...</div>;
+
+  // --- Detail View ---
+  if (selectedShift) {
+    return (
+      <div className="p-6 space-y-6">
+        <button onClick={() => setSelectedShift(null)} className="text-sm text-gray-500 hover:text-black flex items-center gap-1">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          Back to List
+        </button>
+
+        <div className="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold">Shift Audit Report</h2>
+              <p className="text-gray-500 text-sm">Opened: {new Date(selectedShift.opened_at).toLocaleString()}</p>
+              <p className="text-gray-500 text-sm">Closed: {selectedShift.closed_at ? new Date(selectedShift.closed_at).toLocaleString() : 'Active'}</p>
+            </div>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${selectedShift.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+              {selectedShift.status.toUpperCase()}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 pt-4 border-t">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <p className="text-xs text-gray-400 font-bold uppercase">Opening Cash</p>
+              <p className="text-lg font-bold">{formatCurrency(selectedShift.opening_cash || 0)}</p>
+            </div>
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <p className="text-xs text-gray-400 font-bold uppercase">Closing Cash</p>
+              <p className="text-lg font-bold">{formatCurrency(selectedShift.closing_cash || 0)}</p>
+            </div>
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <p className="text-xs text-gray-400 font-bold uppercase">User ID</p>
+              <p className="text-lg font-bold font-mono truncate">{selectedShift.user_id?.substring(0,8)}...</p>
+            </div>
+          </div>
         </div>
-        <div className="text-right bg-gray-50 p-3 rounded-lg border">
-          <p className="text-xs text-gray-400 uppercase font-bold">Shift Started</p>
-          <p className="text-sm font-bold text-gray-800">{new Date(shift.opened_at).toLocaleString()}</p>
+
+        {/* Stock Variance Table */}
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="p-4 border-b">
+            <h3 className="font-bold">Stock Variance</h3>
+          </div>
+          
+          {selectedShift.closing_stock ? (
+             <div className="overflow-x-auto">
+               <table className="w-full text-sm">
+                 <thead className="bg-gray-50">
+                   <tr>
+                     <th className="p-3 text-left font-semibold">Product ID</th>
+                     <th className="p-3 text-center font-semibold">Opening</th>
+                     <th className="p-3 text-center font-semibold">Closing</th>
+                     <th className="p-3 text-center font-semibold">Variance</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y">
+                   {Object.entries(selectedShift.closing_stock).map(([id, closing]: [string, any]) => {
+                      const opening = selectedShift.opening_stock?.[id] || 0;
+                      const variance = opening - closing;
+                      return (
+                        <tr key={id} className={variance !== 0 ? 'bg-red-50' : ''}>
+                          <td className="p-3 font-mono text-gray-500 text-xs">{id.substring(0, 8)}...</td>
+                          <td className="p-3 text-center">{opening}</td>
+                          <td className="p-3 text-center font-bold">{closing}</td>
+                          <td className={`p-3 text-center font-bold ${variance !== 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                            {variance > 0 ? `+${variance}` : variance}
+                          </td>
+                        </tr>
+                      );
+                   })}
+                 </tbody>
+               </table>
+             </div>
+          ) : (
+            <div className="p-8 text-center text-gray-400">No stock data recorded.</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- List View ---
+  return (
+    <div className="p-6 lg:p-8 space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Daily Audit</h1>
+          <p className="text-gray-500 text-sm mt-1">Record of all activities for {date}.</p>
+        </div>
+        <input 
+          type="date" 
+          value={date} 
+          onChange={(e) => setDate(e.target.value)} 
+          className="border p-2 rounded-lg shadow-sm"
+        />
+      </div>
+
+      {/* Summary Cards - Small Fonts */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <p className="text-xs text-gray-400 font-bold uppercase">Total Sales</p>
+          <p className="text-lg font-extrabold text-gray-900 mt-1">{formatCurrency(summary.sales)}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <p className="text-xs text-gray-400 font-bold uppercase">Cash</p>
+          <p className="text-lg font-extrabold text-green-600 mt-1">{formatCurrency(summary.cash)}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <p className="text-xs text-gray-400 font-bold uppercase">M-Pesa</p>
+          <p className="text-lg font-extrabold text-blue-600 mt-1">{formatCurrency(summary.mpesa)}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <p className="text-xs text-gray-400 font-bold uppercase">Expenses</p>
+          <p className="text-lg font-extrabold text-red-600 mt-1">{formatCurrency(summary.expenses)}</p>
         </div>
       </div>
 
       {/* Activity Timeline */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="divide-y divide-gray-100">
-
+        <div className="p-4 border-b">
+           <h3 className="font-bold text-gray-800">Activity Timeline</h3>
+        </div>
+        
+        <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
           {activities.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">
-              No activities recorded yet.
-            </div>
+            <div className="text-center text-gray-400 py-10">No activity recorded.</div>
           ) : (
-            activities.map((act) => (
-              <div key={act.id} className="flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors">
-                
-                {/* Icon & Line */}
-                <div className="flex flex-col items-center">
-                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">
-                    {act.icon}
+            activities.map((item, index) => (
+              <div key={index} className="flex items-start gap-4 pb-4 border-b last:border-b-0">
+                <div className="text-2xl">{item.icon}</div>
+                <div className="flex-1">
+                  <div className="flex justify-between items-center">
+                    <p className="font-bold text-gray-800">{item.title}</p>
+                    <span className={`font-bold text-sm ${item.amount < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                      {item.amount !== 0 ? formatCurrency(item.amount) : ''}
+                    </span>
                   </div>
+                  <p className="text-sm text-gray-500">{item.description}</p>
+                  <p className="text-xs text-gray-400 mt-1">{formatTime(item.time)}</p>
                 </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline">
-                    <p className="font-bold text-gray-900">{act.description}</p>
-                    {act.amount !== undefined && act.amount > 0 && (
-                      <p className={`font-mono font-bold text-sm ${
-                        act.type === 'expense' ? 'text-red-600' : 
-                        act.type === 'sale' ? 'text-green-600' : 'text-gray-600'
-                      }`}>
-                        {act.type === 'expense' ? '-' : '+'}{formatCurrency(act.amount)}
-                      </p>
-                    )}
-                  </div>
-                  
-                  {act.meta && (
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{act.meta}</p>
-                  )}
-                  
-                  <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider">
-                    {formatTime(act.time)}
-                  </p>
-                </div>
-
               </div>
             ))
           )}
-
         </div>
       </div>
 
