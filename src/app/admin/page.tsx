@@ -37,7 +37,7 @@ export default function AdminPortal() {
           .select('total_amount')
           .eq('organization_id', client.organization_id);
         
-        const revenue = sales?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+          const revenue = sales?.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0) || 0;
         return { ...client, revenue };
       }));
 
