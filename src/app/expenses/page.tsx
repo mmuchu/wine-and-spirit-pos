@@ -31,8 +31,15 @@ export default function ExpensesPage() {
     setLoading(true);
     try {
       // 1. Get Active Shift
+      if (!organizationId) {
+        console.error("Organization ID is missing");
+        return;
+      }
+      
       const shift = await shiftService.getCurrentShift(organizationId);
       setCurrentShift(shift);
+
+      // 2. Load Expenses for this shift (or today)
 
       // 2. Load Expenses for this shift (or today)
       let query = supabase
