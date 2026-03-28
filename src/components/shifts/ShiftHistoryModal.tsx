@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { shiftService } from "@/lib/services/shiftService";
+import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/components/pos/utils";
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
 }
 
 export function ShiftHistoryModal({ isOpen, onClose, shiftId }: Props) {
+  const supabase = createClient();
   const [shift, setShift] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -25,7 +26,8 @@ export function ShiftHistoryModal({ isOpen, onClose, shiftId }: Props) {
     if (!shiftId) return;
     setLoading(true);
     try {
-      const data = await shiftService.getShiftDetails(shiftId);
+      // FIXED: Replaced missing shiftService.getShiftDetails with direct Supabase query
+      const { data } = await supabase.from('shifts').select('*').eq('id', shiftId).single();
       setShift(data);
     } catch (e) {
       console.error(e);
