@@ -61,21 +61,20 @@ export default function DashboardPage() {
         const { data: sales } = await supabase.from('sales').select('total_amount, payment_method, items').eq('shift_id', shifts.id).eq('status', 'completed');
 
         if (sales) {
-          // FIXED: Added types to sum and s
           const total = sales.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
           setTotalSales(total);
           setTransactionCount(sales.length);
 
-          // FIXED: Added types to 's' inside BOTH filter and reduce for cash
           const cash = sales.filter((s: any) => s.payment_method === 'cash').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
-          // FIXED: Added types to 's' inside BOTH filter and reduce for mpesa
           const mpesa = sales.filter((s: any) => s.payment_method === 'mpesa').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
           setCashSales(cash);
           setMpesaSales(mpesa);
 
           // Calculate Top/Bottom Products
           const productMap: Record<string, { name: string; quantity: number; revenue: number }> = {};
-          sales.forEach(s => {
+          
+          // FIXED: Added type to 's' in forEach
+          sales.forEach((s: any) => {
             (s.items || []).forEach((item: any) => {
               if (!productMap[item.id]) productMap[item.id] = { name: item.name, quantity: 0, revenue: 0 };
               productMap[item.id].quantity += item.quantity || 0;
@@ -102,7 +101,9 @@ export default function DashboardPage() {
           const key = d.toLocaleDateString('en-US', { weekday: 'short' });
           grouped[key] = 0;
         }
-        trendData.forEach(s => {
+        
+        // FIXED: Added type to 's' in forEach
+        trendData.forEach((s: any) => {
           const key = new Date(s.created_at).toLocaleDateString('en-US', { weekday: 'short' });
           if (grouped[key] !== undefined) grouped[key] += s.total_amount || 0;
         });
