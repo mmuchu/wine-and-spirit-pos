@@ -66,10 +66,10 @@ export default function DashboardPage() {
           setTotalSales(total);
           setTransactionCount(sales.length);
 
-          // FIXED: Added types to sum and s for cash
-          const cash = sales.filter(s => s.payment_method === 'cash').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
-          // FIXED: Added types to sum and s for mpesa
-          const mpesa = sales.filter(s => s.payment_method === 'mpesa').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
+          // FIXED: Added types to 's' inside BOTH filter and reduce for cash
+          const cash = sales.filter((s: any) => s.payment_method === 'cash').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
+          // FIXED: Added types to 's' inside BOTH filter and reduce for mpesa
+          const mpesa = sales.filter((s: any) => s.payment_method === 'mpesa').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
           setCashSales(cash);
           setMpesaSales(mpesa);
 
