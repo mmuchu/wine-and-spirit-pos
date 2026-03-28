@@ -263,9 +263,9 @@ export default function POSPage() {
               
               <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-8 h-8 rounded bg-gray-200 hover:bg-gray-300 font-bold text-lg flex items-center justify-center shrink-0">-</button>
               
-              {/* UPDATED: Ref added for auto-focus */}
+              {/* FIXED: Changed parentheses () to curly braces {} to prevent returning the element */}
               <input 
-                ref={(el) => (inputRefs.current[item.id] = el)}
+                ref={(el) => { inputRefs.current[item.id] = el; }}
                 type="number" 
                 value={item.quantity}
                 onChange={(e) => updateQuantity(item.id, e.target.value)}
