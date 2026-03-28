@@ -61,12 +61,15 @@ export default function DashboardPage() {
         const { data: sales } = await supabase.from('sales').select('total_amount, payment_method, items').eq('shift_id', shifts.id).eq('status', 'completed');
 
         if (sales) {
-          const total = sales.reduce((sum, s) => sum + (s.total_amount || 0), 0);
+          // FIXED: Added types to sum and s
+          const total = sales.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
           setTotalSales(total);
           setTransactionCount(sales.length);
 
-          const cash = sales.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + (s.total_amount || 0), 0);
-          const mpesa = sales.filter(s => s.payment_method === 'mpesa').reduce((sum, s) => sum + (s.total_amount || 0), 0);
+          // FIXED: Added types to sum and s for cash
+          const cash = sales.filter(s => s.payment_method === 'cash').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
+          // FIXED: Added types to sum and s for mpesa
+          const mpesa = sales.filter(s => s.payment_method === 'mpesa').reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
           setCashSales(cash);
           setMpesaSales(mpesa);
 
