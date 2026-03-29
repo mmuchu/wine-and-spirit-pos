@@ -16,11 +16,12 @@ export const auditService = {
         meta
       });
       
+      // Only log to console if a real database error happens
       if (error) {
-        console.error("Audit Log DB Error:", error.message);
+        console.error("Audit Log Error:", error.message);
       }
     } catch (e) {
-      console.error("Audit Log System Error:", e);
+      console.error("Audit System Error:", e);
     }
   },
 
@@ -39,7 +40,7 @@ export const auditService = {
 
       if (salesError) throw salesError;
 
-      sales?.forEach(s => activities.push({
+      sales?.forEach((s: any) => activities.push({
         type: 'SALE',
         icon: '💰',
         color: 'green',
@@ -60,7 +61,7 @@ export const auditService = {
 
       if (movError) throw movError;
 
-      movements?.forEach(m => {
+      movements?.forEach((m: any) => {
         const isPurchase = m.type === 'purchase';
         activities.push({
           type: 'STOCK',
@@ -84,7 +85,7 @@ export const auditService = {
 
       if (shiftError) throw shiftError;
 
-      shifts?.forEach(s => {
+      shifts?.forEach((s: any) => {
         activities.push({
           type: 'SHIFT',
           icon: '⏰',
@@ -119,7 +120,7 @@ export const auditService = {
 
       if (logsError) throw logsError;
 
-      logs?.forEach(l => {
+      logs?.forEach((l: any) => {
         activities.push({
           type: 'LOG',
           icon: l.action.includes('LOGIN') ? '🔑' : '📝',

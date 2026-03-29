@@ -1,7 +1,7 @@
  // src/app/pos/page.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react"; // Added useRef
+import { useState, useEffect, useRef } from "react"; 
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
@@ -10,6 +10,7 @@ import { Product, CartItem } from "@/lib/types";
 import { shiftService } from "@/lib/services/shiftService";
 import { offlineService } from "@/lib/services/offlineService";
 import { BarcodeScanner } from "@/components/pos/BarcodeScanner";
+import { auditService } from "@/lib/services/auditService"; // <--- THE MAGIC IMPORT
 
 export default function POSPage() {
   const supabase = createClient();
@@ -39,20 +40,16 @@ export default function POSPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
-  // NEW: Ref to store input elements
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // 1. Main Loader Effect
   useEffect(() => {
     if (orgLoading) return;
     if (!organizationId) { setLoading(false); return; }
     loadInitialData(organizationId);
-
     const timeout = setTimeout(() => setLoading(false), 5000);
     return () => clearTimeout(timeout);
   }, [organizationId, orgLoading]);
 
-  // 2. Network Listeners
   useEffect(() => {
     const handleOnline = () => { setIsOnline(true); processOfflineQueue(); };
     const handleOffline = () => setIsOnline(false);
@@ -65,13 +62,11 @@ export default function POSPage() {
     };
   }, [organizationId]);
 
-  // 3. Search Filter
   useEffect(() => {
     if (searchTerm.trim() === "") setFilteredProducts([]);
-    else setFilteredProducts(products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()))));
+    else setFilteredProducts(products.filter((p: any) => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()))));
   }, [searchTerm, products]);
 
-  // --- DATA LOADERS ---
   const loadInitialData = async (orgId: string) => {
     setLoading(true);
     try {
@@ -117,14 +112,10 @@ export default function POSPage() {
         ? prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)
         : [...prev, { ...product, quantity: 1 } as CartItem];
       
-      // NEW: Focus the input field after state update
       setTimeout(() => {
         const input = inputRefs.current[product.id];
-        if (input) {
-          input.focus();
-          input.select(); // Select the text so typing overwrites it
-        }
-      }, 50); // Small delay to ensure render
+        if (input) { input.focus(); input.select(); }
+      }, 50);
 
       return updatedCart;
     });
@@ -138,13 +129,11 @@ export default function POSPage() {
     else setCart(prev => prev.map(item => (item.id === id ? { ...item, quantity: num } : item)));
   };
 
-  // --- CALCULATIONS ---
-  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const subtotal = cart.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
   const tax = vatEnabled ? subtotal * 0.16 : 0;
   const total = subtotal + tax;
   const change = parseFloat(cashReceived) - total;
 
-  // --- SALE HANDLER ---
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
     if (!currentShift) { alert("No Active Shift."); return; }
@@ -155,7 +144,7 @@ export default function POSPage() {
       const { data: { user } } = await supabase.auth.getUser();
       const salePayload = {
         organization_id: organizationId, user_id: user?.id, total_amount: total, subtotal, tax_amount: tax, payment_method: paymentMethod, status: "completed", shift_id: currentShift.id,
-        items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity })),
+        items: cart.map((item: any) => ({ id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity })),
       };
 
       let savedSale: any;
@@ -164,7 +153,7 @@ export default function POSPage() {
         if (error) throw error;
         savedSale = data;
         for (const item of cart) {
-          const product = products.find(p => p.id === item.id);
+          const product = products.find((p: any) => p.id === item.id);
           if (product) await supabase.from("products").update({ stock: product.stock - item.quantity }).eq("id", item.id);
         }
         fetchProducts(organizationId);
@@ -179,6 +168,18 @@ export default function POSPage() {
 
       setLastSale({ ...savedSale, date: new Date().toISOString(), shop_name: shopName, address: shopAddress, phone: shopPhone });
       setIsReceiptModalOpen(true);
+      
+      // ========================================== 
+      // ---> THE AUDIT LOG FOR THE SALE!!! <---
+      // ==========================================
+      await auditService.log(
+        'SALE_COMPLETED', 
+        `Total: Ksh ${total} via ${paymentMethod.toUpperCase()}`, 
+        organizationId, 
+        { total, method: paymentMethod, items_count: cart.length, sale_id: savedSale?.id }
+      );
+      // ==========================================
+
       setCart([]);
       setCashReceived("");
       updatePendingCount();
@@ -188,7 +189,6 @@ export default function POSPage() {
 
   const handleBarcodeScan = (code: string) => { setSearchTerm(code); setIsScannerOpen(false); };
 
-  // --- RENDER ---
   if (!orgLoading && !isLicenseValid) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-red-50 p-8 text-center">
@@ -215,7 +215,6 @@ export default function POSPage() {
       {!isOnline && <div className="fixed top-0 left-0 right-0 bg-orange-600 text-white text-center py-2 z-[100] font-bold text-sm print:hidden">⚠️ OFFLINE MODE</div>}
       {isOnline && pendingCount > 0 && <div className="fixed top-0 left-0 right-0 bg-blue-600 text-white text-center py-2 z-[100] font-bold text-sm print:hidden">🔄 Syncing {pendingCount} sales...</div>}
 
-      {/* Left Side */}
       <div className="flex-1 flex flex-col overflow-hidden relative pt-8">
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center shrink-0">
           <h1 className="text-xl font-bold text-gray-900">Sales Terminal</h1>
@@ -230,10 +229,9 @@ export default function POSPage() {
           </button>
         </div>
 
-        {/* Products Grid */}
         <div className="flex-1 overflow-y-auto bg-gray-50 p-6 grid grid-cols-2 gap-4 content-start">
            {searchTerm && filteredProducts.length === 0 && <div className="col-span-2 text-center text-gray-400 py-10">No products found.</div>}
-           {(searchTerm ? filteredProducts : products).map(product => (
+           {(searchTerm ? filteredProducts : products).map((product: any) => (
              <button key={product.id} onClick={() => addToCart(product)} disabled={product.stock <= 0}
                className={`bg-white rounded-xl border p-4 text-left h-36 flex flex-col justify-between ${product.stock <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:border-black'}`}>
                <p className="font-bold text-sm">{product.name}</p>
@@ -246,7 +244,6 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Right Side: Cart */}
       <div className="w-[400px] bg-white border-l flex flex-col shadow-xl shrink-0">
         <div className="p-4 border-b flex justify-between items-center shrink-0">
            <h2 className="font-bold text-lg">Current Order ({cart.length})</h2>
@@ -254,32 +251,20 @@ export default function POSPage() {
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {cart.length === 0 && <div className="text-center text-gray-400 py-10">Cart empty</div>}
-          {cart.map(item => (
+          {cart.map((item: any) => (
             <div key={item.id} className="bg-gray-50 rounded-lg p-3 flex items-center gap-2">
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm truncate">{item.name}</p>
                 <p className="text-xs text-gray-500">{formatCurrency(item.price)}</p>
               </div>
-              
               <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-8 h-8 rounded bg-gray-200 hover:bg-gray-300 font-bold text-lg flex items-center justify-center shrink-0">-</button>
-              
-              {/* FIXED: Changed parentheses () to curly braces {} to prevent returning the element */}
-              <input 
-                ref={(el) => { inputRefs.current[item.id] = el; }}
-                type="number" 
-                value={item.quantity}
-                onChange={(e) => updateQuantity(item.id, e.target.value)}
-                className="w-14 h-8 text-center border border-gray-200 rounded text-sm font-bold appearance-none focus:ring-1 focus:ring-black focus:outline-none"
-              />
-              
+              <input ref={(el) => { inputRefs.current[item.id] = el; }} type="number" value={item.quantity} onChange={(e) => updateQuantity(item.id, e.target.value)} className="w-14 h-8 text-center border border-gray-200 rounded text-sm font-bold appearance-none focus:ring-1 focus:ring-black focus:outline-none" />
               <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="w-8 h-8 rounded bg-gray-200 hover:bg-gray-300 font-bold text-lg flex items-center justify-center shrink-0">+</button>
-              
               <span className="font-bold text-sm w-16 text-right shrink-0">{formatCurrency(item.price * item.quantity)}</span>
             </div>
           ))}
         </div>
         
-        {/* Totals */}
         <div className="p-4 border-t space-y-3 bg-white shrink-0">
           <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
           {vatEnabled && <div className="flex justify-between text-sm text-gray-500"><span>VAT</span><span>{formatCurrency(tax)}</span></div>}
