@@ -109,7 +109,7 @@ export default function DailyAuditPage() {
           time: new Date(m.created_at),
           type: 'stock_in',
           icon: '📦',
-          title: `Stock Added: ${m.products?.name || 'Unknown Product'}`,
+          title: `Stock Added: ${(m as any).products?.name || 'Unknown Product'}`,
           description: `Quantity: +${m.quantity}`,
           amount: 0
         });
