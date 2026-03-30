@@ -1,5 +1,4 @@
- // src/app/reports/audit/page.tsx
-"use client";
+ "use client";
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -15,8 +14,7 @@ export default function DailyAuditPage() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedShift, setSelectedShift] = useState<any | null>(null);
   
-  // Summary State
-  const [summary, setSummary] = useState({ sales: 0, expenses: 0, cash: 0, mpesa: 0 });
+  const [summary, setSummary] = useState({ sales: 0, expenses: 0, cash: 0, mpesa: 0, stockIn: 0 });
   const [activities, setActivities] = useState<any[]>([]);
 
   useEffect(() => {
@@ -27,7 +25,6 @@ export default function DailyAuditPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // Define Date Range
       const start = new Date(date);
       start.setHours(0, 0, 0, 0);
       const end = new Date(date);
@@ -56,33 +53,45 @@ export default function DailyAuditPage() {
         .eq('organization_id', organizationId)
         .or(`opened_at.gte.${start.toISOString()},closed_at.gte.${start.toISOString()}`);
 
+      // 4. FETCH STOCK MOVEMENTS (PURCHASES) - ADDED FIX
+      const { data: stockMovements } = await supabase
+        .from('stock_movements')
+        .select('id, created_at, quantity, type, products(name)')
+        .eq('organization_id', organizationId)
+        .eq('type', 'purchase')
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
+
       // Calculate Summary
       const salesTotal = sales?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
       const expensesTotal = expenses?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
       const cashTotal = sales?.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
       const mpesaTotal = sales?.filter(s => s.payment_method === 'mpesa').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
+      const stockInTotal = stockMovements?.reduce((sum, m) => sum + (m.quantity || 0), 0) || 0;
 
       setSummary({
         sales: salesTotal,
         expenses: expensesTotal,
         cash: cashTotal,
-        mpesa: mpesaTotal
+        mpesa: mpesaTotal,
+        stockIn: stockInTotal // ADDED TO SUMMARY
       });
 
-      // Build Timeline
       const timeline: any[] = [];
 
+      // Build Timeline - SALES
       sales?.forEach(s => {
         timeline.push({
           time: new Date(s.created_at),
           type: 'sale',
           icon: '💵',
-          title: `Sale (${s.payment_method?.toUpperCase()})`,
+          title: `Sale (${s.payment_method?.toUpperCase() || 'UNKNOWN'})`,
           description: `Total: ${formatCurrency(s.total_amount)}`,
           amount: s.total_amount
         });
       });
 
+      // Build Timeline - EXPENSES
       expenses?.forEach(e => {
         timeline.push({
           time: new Date(e.created_at),
@@ -94,6 +103,19 @@ export default function DailyAuditPage() {
         });
       });
 
+      // Build Timeline - STOCK IN (PURCHASES) - ADDED FIX
+      stockMovements?.forEach(m => {
+        timeline.push({
+          time: new Date(m.created_at),
+          type: 'stock_in',
+          icon: '📦',
+          title: `Stock Added: ${m.products?.name || 'Unknown Product'}`,
+          description: `Quantity: +${m.quantity}`,
+          amount: 0
+        });
+      });
+
+      // Build Timeline - SHIFTS
       shiftsData?.forEach(sh => {
         if (new Date(sh.opened_at) >= start) {
           timeline.push({
@@ -117,7 +139,6 @@ export default function DailyAuditPage() {
         }
       });
 
-      // Sort Timeline
       timeline.sort((a, b) => b.time.getTime() - a.time.getTime());
       
       setActivities(timeline);
@@ -184,12 +205,8 @@ export default function DailyAuditPage() {
           </div>
         </div>
 
-        {/* Stock Variance Table */}
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="p-4 border-b">
-            <h3 className="font-bold">Stock Variance</h3>
-          </div>
-          
+          <div className="p-4 border-b"><h3 className="font-bold">Stock Variance</h3></div>
           {selectedShift.closing_stock ? (
              <div className="overflow-x-auto">
                <table className="w-full text-sm">
@@ -235,16 +252,11 @@ export default function DailyAuditPage() {
           <h1 className="text-2xl font-bold text-gray-900">Daily Audit</h1>
           <p className="text-gray-500 text-sm mt-1">Record of all activities for {date}.</p>
         </div>
-        <input 
-          type="date" 
-          value={date} 
-          onChange={(e) => setDate(e.target.value)} 
-          className="border p-2 rounded-lg shadow-sm"
-        />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border p-2 rounded-lg shadow-sm" />
       </div>
 
-      {/* Summary Cards - Small Fonts */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-xl border shadow-sm">
           <p className="text-xs text-gray-400 font-bold uppercase">Total Sales</p>
           <p className="text-lg font-extrabold text-gray-900 mt-1">{formatCurrency(summary.sales)}</p>
@@ -261,17 +273,18 @@ export default function DailyAuditPage() {
           <p className="text-xs text-gray-400 font-bold uppercase">Expenses</p>
           <p className="text-lg font-extrabold text-red-600 mt-1">{formatCurrency(summary.expenses)}</p>
         </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <p className="text-xs text-gray-400 font-bold uppercase">Stock Added</p>
+          <p className="text-lg font-extrabold text-purple-600 mt-1">+{summary.stockIn} units</p>
+        </div>
       </div>
 
       {/* Activity Timeline */}
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="p-4 border-b">
-           <h3 className="font-bold text-gray-800">Activity Timeline</h3>
-        </div>
-        
+        <div className="p-4 border-b"><h3 className="font-bold text-gray-800">Activity Timeline</h3></div>
         <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
           {activities.length === 0 ? (
-            <div className="text-center text-gray-400 py-10">No activity recorded.</div>
+            <div className="text-center text-gray-400 py-10">No activity recorded for this date.</div>
           ) : (
             activities.map((item, index) => (
               <div key={index} className="flex items-start gap-4 pb-4 border-b last:border-b-0">
@@ -291,7 +304,6 @@ export default function DailyAuditPage() {
           )}
         </div>
       </div>
-
     </div>
   );
 }

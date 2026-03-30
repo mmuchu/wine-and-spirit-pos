@@ -1,4 +1,3 @@
- // src/lib/services/auditService.ts
 import { createClient } from "@/lib/supabase/client";
 
 export const auditService = {
@@ -16,7 +15,6 @@ export const auditService = {
         meta
       });
       
-      // Only log to console if a real database error happens
       if (error) {
         console.error("Audit Log Error:", error.message);
       }
@@ -30,7 +28,7 @@ export const auditService = {
     const activities: any[] = [];
 
     try {
-      // Fetch Sales
+      // 1. Fetch Sales
       const { data: sales, error: salesError } = await supabase
         .from('sales')
         .select('id, created_at, total_amount, payment_method')
@@ -38,20 +36,15 @@ export const auditService = {
         .order('created_at', { ascending: false })
         .limit(limit);
 
-      if (salesError) throw salesError;
+      if (!salesError && sales) {
+        sales.forEach((s: any) => activities.push({
+          type: 'SALE', icon: '💰', color: 'green', date: s.created_at,
+          title: `Sale: ${s.payment_method?.toUpperCase() || 'UNKNOWN'}`,
+          description: `Total: Ksh ${s.total_amount}`, user: 'Staff', id: s.id
+        }));
+      }
 
-      sales?.forEach((s: any) => activities.push({
-        type: 'SALE',
-        icon: '💰',
-        color: 'green',
-        date: s.created_at,
-        title: `Sale: ${s.payment_method.toUpperCase()}`,
-        description: `Total: Ksh ${s.total_amount}`,
-        user: 'Staff',
-        id: s.id
-      }));
-
-      // Fetch Stock Movements
+      // 2. Fetch Stock Movements (Replaces the old purchases table)
       const { data: movements, error: movError } = await supabase
         .from('stock_movements')
         .select('*, products(name)')
@@ -59,23 +52,18 @@ export const auditService = {
         .order('created_at', { ascending: false })
         .limit(limit);
 
-      if (movError) throw movError;
-
-      movements?.forEach((m: any) => {
-        const isPurchase = m.type === 'purchase';
-        activities.push({
-          type: 'STOCK',
-          icon: isPurchase ? '📦' : '⚙️',
-          color: isPurchase ? 'blue' : 'orange',
-          date: m.created_at,
-          title: `${m.type.toUpperCase()}: ${m.products?.name || 'Product'}`,
-          description: `Qty: ${m.quantity > 0 ? '+' : ''}${m.quantity}. ${m.notes || ''}`,
-          user: 'Staff',
-          id: m.id
+      if (!movError && movements) {
+        movements.forEach((m: any) => {
+          const isPurchase = m.type === 'purchase';
+          activities.push({
+            type: 'STOCK', icon: isPurchase ? '📦' : '⚙️', color: isPurchase ? 'blue' : 'orange', date: m.created_at,
+            title: `${m.type?.toUpperCase()}: ${m.products?.name || 'Product'}`,
+            description: `Qty: ${m.quantity > 0 ? '+' : ''}${m.quantity}`, user: 'Staff', id: m.id
+          });
         });
-      });
+      }
 
-      // Fetch Shifts
+      // 3. Fetch Shifts
       const { data: shifts, error: shiftError } = await supabase
         .from('shifts')
         .select('*')
@@ -83,55 +71,20 @@ export const auditService = {
         .order('opened_at', { ascending: false })
         .limit(limit);
 
-      if (shiftError) throw shiftError;
-
-      shifts?.forEach((s: any) => {
-        activities.push({
-          type: 'SHIFT',
-          icon: '⏰',
-          color: 'purple',
-          date: s.opened_at,
-          title: `Shift Opened`,
-          description: `Opening Cash: Ksh ${s.opening_cash}`,
-          user: 'Staff',
-          id: s.id
-        });
-        if (s.closed_at) {
+      if (!shiftError && shifts) {
+        shifts.forEach((s: any) => {
           activities.push({
-            type: 'SHIFT',
-            icon: '🏁',
-            color: 'gray',
-            date: s.closed_at,
-            title: `Shift Closed`,
-            description: `Closing Cash: Ksh ${s.closing_cash}`,
-            user: 'Staff',
-            id: `close-${s.id}`
+            type: 'SHIFT', icon: '⏰', color: 'purple', date: s.opened_at,
+            title: `Shift Opened`, description: `Opening Cash: Ksh ${s.opening_cash}`, user: 'Staff', id: s.id
           });
-        }
-      });
-
-      // Fetch Audit Logs
-      const { data: logs, error: logsError } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (logsError) throw logsError;
-
-      logs?.forEach((l: any) => {
-        activities.push({
-          type: 'LOG',
-          icon: l.action.includes('LOGIN') ? '🔑' : '📝',
-          color: 'black',
-          date: l.created_at,
-          title: l.action,
-          description: l.details,
-          user: 'Staff',
-          id: l.id
+          if (s.closed_at) {
+            activities.push({
+              type: 'SHIFT', icon: '🏁', color: 'gray', date: s.closed_at,
+              title: `Shift Closed`, description: `Closing Cash: Ksh ${s.closing_cash}`, user: 'Staff', id: `close-${s.id}`
+            });
+          }
         });
-      });
+      }
 
       // Sort all by date
       activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

@@ -10,7 +10,7 @@ import { Product, CartItem } from "@/lib/types";
 import { shiftService } from "@/lib/services/shiftService";
 import { offlineService } from "@/lib/services/offlineService";
 import { BarcodeScanner } from "@/components/pos/BarcodeScanner";
-import { auditService } from "@/lib/services/auditService"; // <--- THE MAGIC IMPORT
+import { auditService } from "@/lib/services/auditService"; 
 
 export default function POSPage() {
   const supabase = createClient();
@@ -142,22 +142,53 @@ export default function POSPage() {
     setProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const salePayload = {
-        organization_id: organizationId, user_id: user?.id, total_amount: total, subtotal, tax_amount: tax, payment_method: paymentMethod, status: "completed", shift_id: currentShift.id,
-        items: cart.map((item: any) => ({ id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity })),
-      };
+      if (!user) throw new Error("User not authenticated");
 
       let savedSale: any;
+
       if (isOnline) {
-        const { data, error } = await supabase.from("sales").insert(salePayload).select().single();
+        const receiptItems = cart.map((item: any) => ({ 
+          id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity 
+        }));
+
+        const rpcItems = cart.map((item: any) => ({ 
+          product_id: item.id, 
+          quantity: item.quantity 
+        }));
+
+        // FINAL CALL: Bypassing profiles table completely
+        const { data, error } = await supabase.rpc('process_pos_sale', {
+          p_org_id: organizationId,        // Direct pass
+          p_user_id: user.id,
+          p_shift_id: currentShift.id,     
+          p_items_json: receiptItems,      
+          p_items: rpcItems,
+          p_payment_method: paymentMethod, 
+          p_tax_amount: tax,              
+          p_subtotal: subtotal            
+        });
+
         if (error) throw error;
-        savedSale = data;
-        for (const item of cart) {
-          const product = products.find((p: any) => p.id === item.id);
-          if (product) await supabase.from("products").update({ stock: product.stock - item.quantity }).eq("id", item.id);
-        }
+        
+        if (!data.success) throw new Error(data.error || "Sale failed");
+
+        savedSale = {
+          id: data.sale_id,
+          total_amount: data.total, 
+          subtotal: subtotal,
+          tax_amount: tax,
+          payment_method: paymentMethod,
+          shift_id: currentShift.id,
+          items: receiptItems 
+        };
+        
         fetchProducts(organizationId);
+        
       } else {
+        const salePayload = {
+          organization_id: organizationId, user_id: user?.id, total_amount: total, subtotal, tax_amount: tax, payment_method: paymentMethod, status: "completed", shift_id: currentShift.id,
+          items: cart.map((item: any) => ({ id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity })),
+        };
         savedSale = offlineService.queueSale(salePayload);
         setProducts(prev => prev.map(p => {
           const inCart = cart.find(c => c.id === p.id);
@@ -169,22 +200,21 @@ export default function POSPage() {
       setLastSale({ ...savedSale, date: new Date().toISOString(), shop_name: shopName, address: shopAddress, phone: shopPhone });
       setIsReceiptModalOpen(true);
       
-      // ========================================== 
-      // ---> THE AUDIT LOG FOR THE SALE!!! <---
-      // ==========================================
       await auditService.log(
         'SALE_COMPLETED', 
-        `Total: Ksh ${total} via ${paymentMethod.toUpperCase()}`, 
+        `Total: Ksh ${savedSale.total_amount} via ${paymentMethod.toUpperCase()}`, 
         organizationId, 
-        { total, method: paymentMethod, items_count: cart.length, sale_id: savedSale?.id }
+        { total: savedSale.total_amount, method: paymentMethod, items_count: cart.length, sale_id: savedSale?.id }
       );
-      // ==========================================
 
       setCart([]);
       setCashReceived("");
       updatePendingCount();
-    } catch (err: any) { alert(`Error: ${err.message}`); } 
-    finally { setProcessing(false); }
+    } catch (err: any) { 
+      alert(`Error: ${err.message}`); 
+    } finally { 
+      setProcessing(false); 
+    }
   };
 
   const handleBarcodeScan = (code: string) => { setSearchTerm(code); setIsScannerOpen(false); };
