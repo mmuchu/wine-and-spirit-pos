@@ -1,40 +1,34 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server'; // Import the server client we fixed
+import { NextResponse, NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
-export async function POST(request: Request) {
-  // 1. Get the authenticated user
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // 2. FETCH THE USER'S ROLE FROM THE PROFILES TABLE
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-
-  if (profileError || !profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
-  }
-
-  // 3. ENFORCE RBAC: Only Admins or Managers can add/update stock
-  if (profile.role !== 'admin' && profile.role !== 'manager') {
-    return NextResponse.json({ 
-      error: 'Forbidden: You do not have permission to modify stock' 
-    }, { status: 403 });
-  }
-
-  // --- If they pass the security check, proceed with the logic ---
+export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    // ... your stock update logic here ...
+    // 1. Get the authenticated user
+    const supabase = await createClient(); // THE CRITICAL FIX IS HERE
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    // 2. Check authorization
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // 3. Parse request body
+    const body = await request.json();
+
+    // 4. Update the stock in the database
+    const { data, error } = await supabase
+      .from("products")
+      .update({ stock: body.stock })
+      .eq("id", body.productId);
+
+    if (error) {
+      return NextResponse.json({ error: "Failed to update stock" }, { status: 500 });
+    }
+
+    // 5. Return success
+    return NextResponse.json({ message: "Stock updated successfully", data });
+    
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
