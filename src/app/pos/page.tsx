@@ -12,6 +12,10 @@ import { offlineService } from "@/lib/services/offlineService";
 import { BarcodeScanner } from "@/components/pos/BarcodeScanner";
 import { auditService } from "@/lib/services/auditService"; 
 
+// NEW: Helper to fix JavaScript floating point math (e.g., 0.1 + 0.2)
+// Ensures all financial calculations are rounded to 2 decimal places.
+const round2 = (num: number) => Math.round(num * 100) / 100;
+
 export default function POSPage() {
   const supabase = createClient();
   const { organizationId, loading: orgLoading, isLicenseValid } = useOrganization();
@@ -76,6 +80,7 @@ export default function POSPage() {
   };
 
   const fetchProducts = async (orgId: string) => {
+    // SECURITY: Explicitly select cost_price to ensure COGS tracking works
     const { data, error } = await supabase.from("products").select("id, name, price, stock, sku, category_id, is_active, cost_price").eq("organization_id", orgId).eq("is_active", true).order("name");
     if (error) console.error(error);
     else setProducts(data || []);
@@ -129,15 +134,29 @@ export default function POSPage() {
     else setCart(prev => prev.map(item => (item.id === id ? { ...item, quantity: num } : item)));
   };
 
-  const subtotal = cart.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-  const tax = vatEnabled ? subtotal * 0.16 : 0;
-  const total = subtotal + tax;
-  const change = parseFloat(cashReceived) - total;
+  // FIX: Use round2 for all financial calculations to prevent floating point errors
+  const subtotal = round2(cart.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0));
+  const tax = vatEnabled ? round2(subtotal * 0.16) : 0;
+  const total = round2(subtotal + tax);
+  const change = round2(parseFloat(cashReceived) - total);
 
   const handleCompleteSale = async () => {
     if (cart.length === 0) return;
     if (!currentShift) { alert("No Active Shift."); return; }
     if (!organizationId) { alert("Configuration Error."); return; }
+
+    // SECURITY CHECK 1: Client-side stock validation (Better UX)
+    for (const item of cart) {
+      const product = products.find(p => p.id === item.id);
+      if (!product) {
+        alert(`Error: Product ${item.name} not found.`);
+        return;
+      }
+      if (product.stock < item.quantity) {
+        alert(`Insufficient Stock: ${item.name}. Available: ${product.stock}, Requested: ${item.quantity}`);
+        return;
+      }
+    }
 
     setProcessing(true);
     try {
@@ -147,6 +166,7 @@ export default function POSPage() {
       let savedSale: any;
 
       if (isOnline) {
+        // Prepare items with cost_price for COGS tracking
         const receiptItems = cart.map((item: any) => ({ 
           id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity 
         }));
@@ -158,7 +178,7 @@ export default function POSPage() {
 
         // FINAL CALL: Bypassing profiles table completely
         const { data, error } = await supabase.rpc('process_pos_sale', {
-          p_org_id: organizationId,        // Direct pass
+          p_org_id: organizationId,
           p_user_id: user.id,
           p_shift_id: currentShift.id,     
           p_items_json: receiptItems,      
@@ -170,6 +190,7 @@ export default function POSPage() {
 
         if (error) throw error;
         
+        // SECURITY: Check for logical errors returned by SQL function
         if (!data.success) throw new Error(data.error || "Sale failed");
 
         savedSale = {
@@ -182,19 +203,23 @@ export default function POSPage() {
           items: receiptItems 
         };
         
+        // Refresh products to reflect new stock levels
         fetchProducts(organizationId);
         
       } else {
+        // OFFLINE MODE
         const salePayload = {
           organization_id: organizationId, user_id: user?.id, total_amount: total, subtotal, tax_amount: tax, payment_method: paymentMethod, status: "completed", shift_id: currentShift.id,
           items: cart.map((item: any) => ({ id: item.id, name: item.name, price: item.price, cost_price: item.cost_price || 0, quantity: item.quantity })),
         };
         savedSale = offlineService.queueSale(salePayload);
+        
+        // Optimistically update local stock state
         setProducts(prev => prev.map(p => {
           const inCart = cart.find(c => c.id === p.id);
           return inCart ? { ...p, stock: p.stock - inCart.quantity } : p;
         }));
-        alert("OFFLINE. Sale saved locally.");
+        alert("⚠️ OFFLINE. Sale saved locally and will sync later.");
       }
 
       setLastSale({ ...savedSale, date: new Date().toISOString(), shop_name: shopName, address: shopAddress, phone: shopPhone });
@@ -211,7 +236,13 @@ export default function POSPage() {
       setCashReceived("");
       updatePendingCount();
     } catch (err: any) { 
-      alert(`Error: ${err.message}`); 
+      // SECURITY: Improved Error Handling
+      console.error(err);
+      if (err.message?.includes('Insufficient stock')) {
+        alert(`❌ Stock Error: ${err.message}`);
+      } else {
+        alert(`Error: ${err.message}`);
+      }
     } finally { 
       setProcessing(false); 
     }
@@ -219,6 +250,7 @@ export default function POSPage() {
 
   const handleBarcodeScan = (code: string) => { setSearchTerm(code); setIsScannerOpen(false); };
 
+  // ... Render components remain the same ...
   if (!orgLoading && !isLicenseValid) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-red-50 p-8 text-center">

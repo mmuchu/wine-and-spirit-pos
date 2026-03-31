@@ -4,9 +4,13 @@ export function formatCurrency(amount: number | undefined | null): string {
   if (typeof amount !== 'number' || isNaN(amount)) {
     return "Ksh 0.00";
   }
+
+  // FIX: Force 2 decimal places (e.g., 1000 becomes Ksh 1,000.00)
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
     currency: 'KES',
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2,
   }).format(amount);
 }
 

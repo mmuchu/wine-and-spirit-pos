@@ -25,7 +25,7 @@ export const expenseService = {
       return data?.reduce((sum: number, e: any) => sum + Number(e.amount), 0) || 0;
     } catch (err) {
       console.error("Failed to load expenses", err);
-      return 0; // Return 0 instead of crashing
+      return 0;
     }
   },
 
@@ -44,6 +44,30 @@ export const expenseService = {
   async addExpense(expense: any) {
     const supabase = createClient();
     const { error } = await supabase.from('expenses').insert(expense);
+    if (error) throw error;
+  },
+
+  // --- NEW: Category Management Functions ---
+
+  async getCategories(organizationId: string) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('expense_categories')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  async addCategory(category: { organization_id: string; name: string; cost_type: string }) {
+    const supabase = createClient();
+    const { error } = await supabase.from('expense_categories').insert({
+      organization_id: category.organization_id,
+      name: category.name,
+      cost_type: category.cost_type
+    });
     if (error) throw error;
   }
 };

@@ -1,4 +1,5 @@
- "use client";
+ // src/app/reports/audit/page.tsx
+"use client";
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +17,13 @@ export default function DailyAuditPage() {
   
   const [summary, setSummary] = useState({ sales: 0, expenses: 0, cash: 0, mpesa: 0, stockIn: 0 });
   const [activities, setActivities] = useState<any[]>([]);
+  
+  // NEW: State for raw data to use in breakdowns
+  const [salesData, setSalesData] = useState<any[]>([]);
+  const [expensesData, setExpensesData] = useState<any[]>([]);
+  
+  // NEW: State for Modal
+  const [activeBreakdown, setActiveBreakdown] = useState<'sales' | 'expenses' | 'cash' | 'mpesa' | null>(null);
 
   useEffect(() => {
     if (organizationId) fetchAuditData();
@@ -43,8 +51,12 @@ export default function DailyAuditPage() {
         .from('expenses')
         .select('id, created_at, amount, category, notes')
         .eq('organization_id', organizationId)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
+        .gte('date', date)
+        .lte('date', date);
+        
+      // Store raw data for modals
+      setSalesData(sales || []);
+      setExpensesData(expenses || []);
 
       // 3. Fetch Shifts
       const { data: shiftsData } = await supabase
@@ -53,7 +65,7 @@ export default function DailyAuditPage() {
         .eq('organization_id', organizationId)
         .or(`opened_at.gte.${start.toISOString()},closed_at.gte.${start.toISOString()}`);
 
-      // 4. FETCH STOCK MOVEMENTS (PURCHASES) - ADDED FIX
+      // 4. FETCH STOCK MOVEMENTS
       const { data: stockMovements } = await supabase
         .from('stock_movements')
         .select('id, created_at, quantity, type, products(name)')
@@ -74,7 +86,7 @@ export default function DailyAuditPage() {
         expenses: expensesTotal,
         cash: cashTotal,
         mpesa: mpesaTotal,
-        stockIn: stockInTotal // ADDED TO SUMMARY
+        stockIn: stockInTotal
       });
 
       const timeline: any[] = [];
@@ -103,7 +115,7 @@ export default function DailyAuditPage() {
         });
       });
 
-      // Build Timeline - STOCK IN (PURCHASES) - ADDED FIX
+      // Build Timeline - STOCK IN
       stockMovements?.forEach(m => {
         timeline.push({
           time: new Date(m.created_at),
@@ -151,19 +163,77 @@ export default function DailyAuditPage() {
     }
   };
 
-  const getVarianceSummary = (shift: any) => {
-    if (!shift.closing_stock || !shift.opening_stock) return { count: 0, hasVariance: false };
-    let varianceCount = 0;
-    Object.keys(shift.closing_stock).forEach(key => {
-      const opening = shift.opening_stock[key] || 0;
-      const closing = shift.closing_stock[key];
-      if (opening !== closing) varianceCount++;
-    });
-    return { count: varianceCount, hasVariance: varianceCount > 0 };
-  };
-
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // NEW: Helper to render the breakdown modal content
+  const renderBreakdownContent = () => {
+    if (!activeBreakdown) return null;
+
+    let data: any[] = [];
+    let title = "";
+    let headers = ["Time", "Details", "Amount"];
+
+    if (activeBreakdown === 'sales') {
+      title = "All Sales Breakdown";
+      data = salesData;
+    } else if (activeBreakdown === 'expenses') {
+      title = "Expenses Breakdown";
+      data = expensesData;
+      headers = ["Time", "Category", "Note", "Amount"];
+    } else if (activeBreakdown === 'cash') {
+      title = "Cash Sales Breakdown";
+      data = salesData.filter(s => s.payment_method === 'cash');
+    } else if (activeBreakdown === 'mpesa') {
+      title = "M-Pesa Sales Breakdown";
+      data = salesData.filter(s => s.payment_method === 'mpesa');
+    }
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+          <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+            <h2 className="text-xl font-bold">{title}</h2>
+            <button onClick={() => setActiveBreakdown(null)} className="text-gray-500 hover:text-black text-2xl font-bold">&times;</button>
+          </div>
+          
+          <div className="p-4 overflow-auto flex-1">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100 text-xs uppercase text-gray-500 sticky top-0">
+                <tr>
+                  {headers.map(h => <th key={h} className="p-3 text-left">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {data.length === 0 ? (
+                  <tr><td colSpan={headers.length} className="p-4 text-center text-gray-400">No data found.</td></tr>
+                ) : (
+                  data.map((item) => (
+                    <tr key={item.id}>
+                      <td className="p-3 text-gray-600">{formatTime(new Date(item.created_at))}</td>
+                      
+                      {activeBreakdown === 'expenses' ? (
+                        <>
+                          <td className="p-3 font-medium">{item.category || 'General'}</td>
+                          <td className="p-3 text-gray-500 truncate max-w-[200px]" title={item.notes}>{item.notes || '-'}</td>
+                          <td className="p-3 text-right font-bold text-red-600">- {formatCurrency(item.amount)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="p-3 text-gray-500">{item.payment_method?.toUpperCase()}</td>
+                          <td className="p-3 text-right font-bold text-green-600">+ {formatCurrency(item.total_amount)}</td>
+                        </>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (loading) return <div className="p-8">Loading Audit...</div>;
@@ -247,6 +317,9 @@ export default function DailyAuditPage() {
   // --- List View ---
   return (
     <div className="p-6 lg:p-8 space-y-6">
+      {/* Render Modal if active */}
+      {renderBreakdownContent()}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Daily Audit</h1>
@@ -255,21 +328,33 @@ export default function DailyAuditPage() {
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border p-2 rounded-lg shadow-sm" />
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - NOW CLICKABLE */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
+        <div 
+          onClick={() => setActiveBreakdown('sales')} 
+          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-blue-400 transition-colors"
+        >
           <p className="text-xs text-gray-400 font-bold uppercase">Total Sales</p>
           <p className="text-lg font-extrabold text-gray-900 mt-1">{formatCurrency(summary.sales)}</p>
         </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
+        <div 
+          onClick={() => setActiveBreakdown('cash')} 
+          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-green-400 transition-colors"
+        >
           <p className="text-xs text-gray-400 font-bold uppercase">Cash</p>
           <p className="text-lg font-extrabold text-green-600 mt-1">{formatCurrency(summary.cash)}</p>
         </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
+        <div 
+          onClick={() => setActiveBreakdown('mpesa')} 
+          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-blue-400 transition-colors"
+        >
           <p className="text-xs text-gray-400 font-bold uppercase">M-Pesa</p>
           <p className="text-lg font-extrabold text-blue-600 mt-1">{formatCurrency(summary.mpesa)}</p>
         </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
+        <div 
+          onClick={() => setActiveBreakdown('expenses')} 
+          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-red-400 transition-colors"
+        >
           <p className="text-xs text-gray-400 font-bold uppercase">Expenses</p>
           <p className="text-lg font-extrabold text-red-600 mt-1">{formatCurrency(summary.expenses)}</p>
         </div>
