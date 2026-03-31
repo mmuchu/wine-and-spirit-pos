@@ -10,12 +10,7 @@ export function LicenseGuard({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<'loading' | 'active' | 'invalid'>('loading');
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    if (organizationId) {
-      verify();
-    }
-  }, [organizationId]);
-
+  // 1. Define the function FIRST
   const verify = async () => {
     const result = await licenseService.validateLicense(organizationId);
     
@@ -26,6 +21,13 @@ export function LicenseGuard({ children }: { children: React.ReactNode }) {
       setMessage(result.message);
     }
   };
+
+  // 2. Call it SECOND
+  useEffect(() => {
+    if (organizationId) {
+      verify();
+    }
+  }, [organizationId]);
 
   if (status === 'loading') {
     return (
