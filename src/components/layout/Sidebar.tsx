@@ -1,5 +1,4 @@
- // src/components/layout/Sidebar.tsx
-"use client";
+ "use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -95,10 +94,10 @@ export function Sidebar() {
       <aside className="fixed top-0 left-0 z-50 h-screen w-72 bg-white border-r flex flex-col">
         <div className="h-16 flex items-center px-6 border-b shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg"><span className="text-white font-bold text-lg">K</span></div>
+            <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg"><span className="text-white font-bold text-lg">G</span></div>
             <div>
-              <h1 className="text-sm font-bold text-gray-900 tracking-tight">KENYAN SPIRIT</h1>
-              <p className="text-[10px] text-gray-400 uppercase tracking-widest">Lounge & Bistro</p>
+              <h1 className="text-sm font-bold text-gray-900 tracking-tight">GFS FINANCIAL</h1>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest">Control System</p>
             </div>
           </div>
         </div>
