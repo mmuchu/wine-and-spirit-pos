@@ -1,4 +1,4 @@
- // src/components/pos/BarcodeScanner.tsx
+ // src/components/pos/flash/Barcodescanner.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -11,6 +11,7 @@ export function BarcodeScanner({ onScan, onClose }: { onScan: (code: string) => 
   useEffect(() => {
     const config = { fps: 10, qrbox: { width: 250, height: 250 } };
     
+    // Ensure this runs only on client
     const html5QrCode = new Html5Qrcode("barcode-reader");
     scannerRef.current = html5QrCode;
 
@@ -19,9 +20,12 @@ export function BarcodeScanner({ onScan, onClose }: { onScan: (code: string) => 
       config,
       (decodedText) => {
         onScan(decodedText);
-        html5QrCode.stop().catch(err => console.error("Stop error", err));
+        // Stop scanner after successful scan
+        html5QrCode.stop().then(() => {
+            // Scanner stopped successfully
+        }).catch(err => console.error("Stop error", err));
       },
-      () => {} // Ignore scan errors
+      () => {} // Ignore scan errors (fps matching)
     ).catch((err) => {
       setError("Could not access camera. Please check permissions.");
       console.error("Camera init error:", err);

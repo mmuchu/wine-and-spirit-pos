@@ -6,216 +6,193 @@ import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { shiftService } from "@/lib/services/shiftService";
 import { formatCurrency } from "@/components/pos/utils";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export function StockReturnClient() {
   const supabase = createClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { organizationId } = useOrganization();
 
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
   const [shift, setShift] = useState<any>(null);
   const [stockRows, setStockRows] = useState<any[]>([]);
   const [closingCash, setClosingCash] = useState(0);
   const [expectedCash, setExpectedCash] = useState(0);
   const [notes, setNotes] = useState("");
-  const [processing, setProcessing] = useState(false);
-
-  // State for Categories
-  const [categories, setCategories] = useState<string[]>(["All"]);
-  const [activeCategory, setActiveCategory] = useState("All");
 
   useEffect(() => {
-    if (organizationId) load();
+    if (organizationId) loadShiftData();
   }, [organizationId]);
 
-  const load = async () => {
+  const loadShiftData = async () => {
     setLoading(true);
     try {
-      const s = await shiftService.getCurrentShift(organizationId);
-      if (!s) { setLoading(false); return; }
-      setShift(s);
+      const currentShift = await shiftService.getCurrentShift(organizationId);
+      if (!currentShift) { setLoading(false); return; }
+      setShift(currentShift);
 
-      const salesTotal = await shiftService.getShiftSales(s.id, s.opened_at);
-      setExpectedCash((s.opening_cash || 0) + salesTotal);
-
-      // 1. Fetch Products with Category Name
-      const { data: prods } = await supabase
-        .from('products')
-        .select('id, name, stock, cost_price, category_id, categories(name)')
+      const cashParam = searchParams.get('cash');
+      if (cashParam) setClosingCash(parseFloat(cashParam) || 0);
+      
+      // 1. Calculate Cash Sales
+      const { data: shiftOrders } = await supabase
+        .from('orders')
+        .select('id, total')
         .eq('organization_id', organizationId)
-        .eq('is_active', true);
-      
-      // 2. Build Category List (Names, not IDs)
-      const cats = new Set<string>();
-      prods?.forEach(p => {
-        // Access nested category name. Fallback to 'Other' if null.
-        const catName = (p.categories as any)?.name || 'Other';
-        cats.add(catName);
-      });
-      setCategories(["All", ...Array.from(cats)]);
+        .eq('status', 'completed')
+        .gte('created_at', currentShift.opened_at);
 
-      const opStock: Record<string, number> = s.opening_stock || {};
-      
-      const { data: purch } = await supabase
-        .from('stock_movements')
+      const salesTotal = shiftOrders?.reduce((sum, o) => sum + (Number(o.total) || 0), 0) || 0;
+      const openingCash = Number(currentShift.opening_cash) || 0;
+      setExpectedCash(openingCash + salesTotal);
+
+      // 2. Get Live Inventory (This solves connecting to inventory)
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, name, stock') // Fetch live stock from DB
+        .eq('organization_id', organizationId)
+        .eq('is_active', true)
+        .order('name');
+
+      const openingStock: Record<string, number> = currentShift.opening_stock || {};
+
+      const { data: purchases } = await supabase.from('stock_movements').select('product_id, quantity').eq('shift_id', currentShift.id).eq('type', 'purchase');
+      const purchaseMap: Record<string, number> = {};
+      purchases?.forEach(p => { purchaseMap[p.product_id] = (purchaseMap[p.product_id] || 0) + (p.quantity || 0); });
+
+      const orderIds = shiftOrders?.map(o => o.id) || [];
+      const { data: orderItems } = await supabase
+        .from('order_items')
         .select('product_id, quantity')
-        .eq('shift_id', s.id)
-        .eq('type', 'purchase');
+        .in('order_id', orderIds);
 
-      const pMap: Record<string, number> = {};
-      purch?.forEach(p => { pMap[p.product_id] = (pMap[p.product_id]||0) + (p.quantity||0); });
-
-      const { data: salesData } = await supabase
-        .from('sales')
-        .select('items')
-        .eq('shift_id', s.id)
-        .eq('status', 'completed');
-
-      const sMap: Record<string, number> = {};
-      salesData?.forEach(sale => {
-        (sale.items||[]).forEach((i: any) => { sMap[i.id] = (sMap[i.id]||0) + (i.quantity||0); });
+      const salesMap: Record<string, number> = {};
+      orderItems?.forEach(item => { 
+        if (item.product_id) {
+          salesMap[item.product_id] = (salesMap[item.product_id] || 0) + (item.quantity || 0); 
+        }
       });
 
-      // 3. Map Rows with Category Name
-      const rows = (prods||[]).map(p => {
-        const o = opStock[p.id] ?? p.stock;
-        const pQty = pMap[p.id] || 0;
-        const sQty = sMap[p.id] || 0;
-        const expected = o + pQty - sQty;
-        const catName = (p.categories as any)?.name || 'Other';
+      // 3. Build Rows
+      const rows: any[] = (products || []).map(p => {
+        const open = openingStock[p.id] ?? p.stock ?? 0; // Fallback to live DB stock if shift didn't save snapshot
+        const purch = purchaseMap[p.id] || 0;
+        const sold = salesMap[p.id] || 0;
+        const exp = open + purch - sold;
+        const liveStock = p.stock || 0; // Get the actual live stock from DB
         
-        return {
-          productId: p.id,
-          name: p.name,
-          category: catName, // Use Name
-          costPrice: p.cost_price || 0,
-          opening: o,
-          purchases: pQty,
-          sales: sQty,
-          expected: expected,
-          actual: expected,
-          variance: 0,
-          isVarianceOk: true
+        return { 
+          productId: p.id, 
+          productName: p.name, 
+          opening: open, 
+          purchases: purch, 
+          sales: sold, 
+          expected: exp, 
+          actual: liveStock, // AUTO-POPULATE from live inventory
+          variance: liveStock - exp   // Auto-calculate variance against expected
         };
       });
-
       setStockRows(rows);
-    } catch (e) { console.error(e); } 
+    } catch (err) { console.error(err); } 
     finally { setLoading(false); }
   };
 
-  // Filter Logic
-  const filteredRows = activeCategory === "All" 
-    ? stockRows 
-    : stockRows.filter(r => r.category === activeCategory);
-
-  const upd = (id: string, val: string) => {
-    const v = parseFloat(val)||0;
-    setStockRows(prev => prev.map(r => {
-      if(r.productId === id) {
-        const varN = r.expected - v;
-        return { ...r, actual: v, variance: varN, isVarianceOk: Math.abs(varN) < 0.01 };
-      }
-      return r;
-    }));
+  const handleActualChange = (productId: string, value: string) => {
+    const val = parseFloat(value) || 0;
+    setStockRows(prev => prev.map(row => 
+      row.productId === productId 
+        ? { ...row, actual: val, variance: val - row.expected } 
+        : row
+    ));
   };
 
-  const close = async () => {
-    if(!shift) return;
-    if(!confirm("Close Shift?")) return;
+  const handleCloseShift = async () => {
+    if (!shift || !organizationId) return;
+    if (!confirm("Confirm closing shift?")) return;
     setProcessing(true);
     try {
-      const snap: Record<string, number> = {};
-      stockRows.forEach(r => snap[r.productId] = r.actual);
-      await shiftService.closeShift(shift.id, closingCash, snap, notes);
-      await Promise.all(stockRows.map(r => 
-        supabase.from('products').update({ stock: r.actual }).eq('id', r.productId)
-      ));
-      alert("Shift Closed!");
-      window.location.href = '/';
-    } catch (e: any) { alert(e.message); } 
+      const closingSnapshot: Record<string, number> = {};
+      stockRows.forEach(r => { closingSnapshot[r.productId] = r.actual; });
+      
+      // 1. Close shift with snapshot
+      await shiftService.closeShift(shift.id, closingCash, closingSnapshot, notes);
+      
+      // 2. Update the live products.stock table (This solves Shift Handoff!)
+      await Promise.all(
+        stockRows.map(row => 
+          supabase.from('products')
+            .update({ stock: row.actual }) 
+            .eq('id', row.productId)
+        )
+      );
+      
+      alert("Shift closed successfully!");
+      router.push('/');
+    } catch (err: any) { alert(`Error: ${err.message}`); } 
     finally { setProcessing(false); }
   };
 
-  if(loading) return <div className="p-8">Loading...</div>;
-  if(!shift) return <div className="p-8 text-center"><h1 className="text-xl font-bold">No Active Shift</h1></div>;
-
-  const cashVar = closingCash - expectedCash;
+  if (loading) return <div className="p-8">Calculating...</div>;
+  if (!shift) return <div className="p-8 text-center"><h2 className="text-xl font-bold">No Active Shift</h2></div>;
+  
+  const cashVariance = closingCash - expectedCash;
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold">Daily Stock Return</h1>
-        <div className="text-right">
-          <p className="text-xs text-gray-400">Expected</p>
-          <p className="font-bold">{formatCurrency(expectedCash)}</p>
-        </div>
-      </div>
+    <div className="p-6 lg:p-8 max-w-full mx-auto space-y-6">
+      <h1 className="text-2xl font-bold text-gray-900">Daily Stock Return</h1>
       
-      {/* Cash Section */}
-      <div className="bg-white p-4 rounded shadow flex items-center gap-4">
-        <div className="flex-1">
-          <label className="text-xs text-gray-500">Actual Cash in Drawer</label>
-          <input 
-            type="number" 
-            value={closingCash} 
-            onChange={e=>setClosingCash(parseFloat(e.target.value)||0)} 
-            className="w-full border p-2 rounded text-lg font-bold" 
-          />
+      <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
+        <h2 className="font-bold text-lg border-b pb-2">Cash Reconciliation</h2>
+        <div className="grid grid-cols-4 gap-4 text-center text-sm font-bold">
+          <div className="p-2 bg-gray-50 rounded"><p className="text-gray-500 font-normal text-xs">Opening</p><p>{formatCurrency(shift.opening_cash || 0)}</p></div>
+          <div className="p-2 bg-gray-50 rounded"><p className="text-gray-500 font-normal text-xs">Sales</p><p>{formatCurrency(expectedCash - (shift.opening_cash || 0))}</p></div>
+          <div className="p-2 bg-blue-50 rounded text-blue-800"><p className="font-normal text-xs">Expected</p><p className="text-lg">{formatCurrency(expectedCash)}</p></div>
+          <div className="p-2 bg-green-50 rounded text-green-800">
+            <p className="font-normal text-xs">Actual</p>
+            <input type="number" value={closingCash} onChange={(e) => setClosingCash(parseFloat(e.target.value) || 0)} className="w-full bg-transparent text-center text-lg font-bold focus:outline-none" />
+          </div>
         </div>
-        <div className={`px-4 py-2 rounded ${Math.abs(cashVar)>10 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-          Variance: {formatCurrency(cashVar)}
+        <div className={`p-3 rounded text-center font-bold ${Math.abs(cashVariance) > 10 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+          Variance: {cashVariance >= 0 ? '+' : ''}{formatCurrency(cashVariance)}
         </div>
       </div>
 
-      {/* HORIZONTAL SCROLL CATEGORIES (Now shows Names) */}
-      <div className="flex overflow-x-auto gap-2 pb-2 no-scrollbar">
-        {categories.map(cat => (
-          <button 
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition ${activeCategory === cat ? 'bg-black text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-
-      {/* Stock Table */}
-      <div className="bg-white rounded shadow overflow-hidden">
-        <div className="overflow-y-auto max-h-[400px]">
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="p-4 border-b bg-gray-50"><h2 className="font-bold text-gray-800">Stock Reconciliation</h2></div>
+        <div className="overflow-x-auto max-h-96">
           <table className="w-full text-xs">
-            <thead className="bg-gray-100 sticky top-0 z-10">
+            <thead className="bg-gray-100 sticky top-0">
               <tr>
-                <th className="p-2 text-left sticky left-0 bg-gray-100">Product</th>
+                <th className="p-2 text-left sticky left-0 bg-gray-100 z-10">Product</th>
                 <th className="p-2 text-center">Op</th>
-                <th className="p-2 text-center">Purc</th>
+                <th className="p-2 text-center">Purch</th>
                 <th className="p-2 text-center">Sales</th>
-                <th className="p-2 text-center">Exp</th>
-                <th className="p-2 text-center bg-green-50">Act</th>
-                <th className="p-2 text-center">Var</th>
+                <th className="p-2 text-center font-bold text-blue-700 bg-blue-50">Exp</th>
+                <th className="p-2 text-center font-bold text-green-700 bg-green-50">Actual (Live)</th>
+                <th className="p-2 text-center font-bold text-red-700 bg-red-50">Variance</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filteredRows.length === 0 && (
-                <tr><td colSpan={7} className="p-4 text-center text-gray-400">No products in this category.</td></tr>
-              )}
-              {filteredRows.map(r => (
-                <tr key={r.productId} className={!r.isVarianceOk ? 'bg-red-50' : ''}>
-                  <td className="p-2 font-medium sticky left-0 bg-white">{r.name}</td>
+              {stockRows.map(r => (
+                <tr key={r.productId} className="hover:bg-gray-50">
+                  <td className="p-2 font-medium sticky left-0 bg-white z-10">{r.productName}</td>
                   <td className="p-2 text-center text-gray-500">{r.opening}</td>
                   <td className="p-2 text-center text-gray-500">{r.purchases}</td>
                   <td className="p-2 text-center text-gray-500">{r.sales}</td>
-                  <td className="p-2 text-center font-bold">{r.expected}</td>
+                  <td className="p-2 text-center font-bold bg-blue-50">{r.expected}</td>
                   <td className="p-1 bg-green-50">
                     <input 
                       type="number" 
+                      min="-9999" 
                       value={r.actual} 
-                      onChange={e=>upd(r.productId, e.target.value)} 
-                      className="w-12 p-1 border rounded text-center font-bold" 
+                      onChange={(e) => handleActualChange(r.productId, e.target.value)} 
+                      className="w-full p-1 border rounded text-center font-bold bg-white" 
                     />
                   </td>
-                  <td className={`p-2 text-center font-bold ${r.variance?'text-red-600 font-bold':'text-gray-300'}`}>
-                    {r.variance > 0 ? `+${r.variance}` : r.variance}
+                  <td className={`p-2 text-center font-bold ${r.variance === 0 ? 'text-gray-400' : (r.variance > 0 ? 'text-green-600' : 'text-red-600')}`}>
+                    {r.variance > 0 ? '+' : ''}{r.variance}
                   </td>
                 </tr>
               ))}
@@ -224,16 +201,12 @@ export function StockReturnClient() {
         </div>
       </div>
 
-      <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes..." className="w-full p-2 border rounded text-sm" rows={1} />
-      
-      <button onClick={close} disabled={processing} className="w-full py-3 bg-red-600 text-white rounded font-bold text-sm">
-        {processing ? "Processing..." : "Close Shift"}
-      </button>
-
-      <style jsx>{`
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
+      <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 border rounded-lg text-sm" rows={2} placeholder="Notes..." />
+        <button onClick={handleCloseShift} disabled={processing} className="w-full py-4 bg-red-600 text-white rounded-xl font-bold text-lg hover:bg-red-700 disabled:bg-gray-300">
+          {processing ? "Processing..." : "Submit & Close Shift"}
+        </button>
+      </div>
     </div>
   );
 }

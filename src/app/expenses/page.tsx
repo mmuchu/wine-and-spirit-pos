@@ -4,94 +4,47 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
-import { shiftService } from "@/lib/services/shiftService";
 import { formatCurrency } from "@/components/pos/utils";
-import { expenseService } from "@/lib/services/expenseService";
-import { db } from "@/lib/db"; // NEW: Import local database
+
+type Expense = {
+  id: string;
+  description: string | null;
+  category: string | null;
+  amount: number;
+  cost_type: 'fixed' | 'variable' | null;
+  date: string;
+  created_at: string;
+};
 
 export default function ExpensesPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-
+  
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
+  // Form State
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("Salaries");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState("General");
-  const [notes, setNotes] = useState("");
-  
-  const [categories, setCategories] = useState<any[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [currentShift, setCurrentShift] = useState<any>(null);
+  const [costType, setCostType] = useState<"fixed" | "variable">("fixed");
+  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split("T")[0]); // Defaults to today
 
   useEffect(() => {
-    if (organizationId) {
-      loadInitialData();
-      loadCategories();
-      syncPendingExpenses(); // NEW: Attempt to sync offline expenses on load
-    }
+    if (organizationId) fetchExpenses();
   }, [organizationId]);
 
-  // NEW: Listen for online event to sync immediately when connection returns
-  useEffect(() => {
-    const handleOnline = () => {
-      console.log("Connection restored. Syncing expenses...");
-      syncPendingExpenses();
-    };
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [organizationId]);
-
-  const loadCategories = async () => {
-    if (!organizationId) return;
-    try {
-      const data = await expenseService.getCategories(organizationId);
-      
-      if (data && data.length > 0) {
-        setCategories(data);
-        setCategory(data[0].name); 
-      } else {
-        const defaults = [
-          { id: 'def_1', name: 'General', cost_type: 'variable' },
-          { id: 'def_2', name: 'Rent', cost_type: 'fixed' },
-          { id: 'def_3', name: 'Utilities', cost_type: 'variable' },
-          { id: 'def_4', name: 'Salaries', cost_type: 'fixed' },
-          { id: 'def_5', name: 'Stock Purchase', cost_type: 'variable' },
-          { id: 'def_6', name: 'Miscellaneous', cost_type: 'variable' }
-        ];
-        setCategories(defaults);
-        setCategory('General');
-      }
-    } catch (err) {
-      console.error("Failed to load categories, using defaults.", err);
-      const defaults = [
-        { id: 'def_1', name: 'General', cost_type: 'variable' },
-        { id: 'def_2', name: 'Rent', cost_type: 'fixed' },
-        { id: 'def_3', name: 'Utilities', cost_type: 'variable' }
-      ];
-      setCategories(defaults);
-    }
-  };
-
-  const loadInitialData = async () => {
+  const fetchExpenses = async () => {
     setLoading(true);
     try {
-      if (!organizationId) return;
-      
-      const shift = await shiftService.getCurrentShift(organizationId);
-      setCurrentShift(shift);
-
-      let query = supabase
+      const { data, error } = await supabase
         .from("expenses")
         .select("*")
         .eq("organization_id", organizationId)
-        .order("created_at", { ascending: false });
+        .order("date", { ascending: false })
+        .limit(100);
 
-      if (shift) {
-        query = query.eq("shift_id", shift.id);
-      }
-
-      const { data, error } = await query;
       if (error) throw error;
       setExpenses(data || []);
     } catch (err) {
@@ -101,236 +54,207 @@ export default function ExpensesPage() {
     }
   };
 
-  // NEW: Function to sync offline expenses
-  const syncPendingExpenses = async () => {
-    if (!organizationId) return;
-    
-    try {
-      const pendingExpenses = await db.expensesQueue
-        .where('status').equals('pending')
-        .toArray();
-
-      if (pendingExpenses.length === 0) return;
-
-      console.log(`Syncing ${pendingExpenses.length} offline expenses...`);
-
-      for (const expense of pendingExpenses) {
-        try {
-          const { error } = await supabase.from('expenses').insert(expense.payload);
-          
-          if (!error) {
-            // If successful, mark as synced (or delete)
-            await db.expensesQueue.delete(expense.id!);
-            console.log("Synced expense:", expense.id);
-          } else {
-            console.error("Failed to sync expense:", error);
-            // Optional: update status to 'failed' if needed
-          }
-        } catch (syncError) {
-          console.error("Error syncing item:", syncError);
-        }
-      }
-      
-      // Refresh the list to show newly synced items
-      loadInitialData();
-      
-    } catch (err) {
-      console.error("Error accessing local DB for sync:", err);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!organizationId) return;
-
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) {
-      alert("Amount must be greater than 0.");
-      return;
-    }
-
-    if (!notes.trim()) {
-      alert("Please enter a description or note.");
-      return;
-    }
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!organizationId || !amount) return;
 
     setSaving(true);
-
     try {
-      const selectedCat = categories.find(c => c.name === category);
-      
-      // Prepare the payload
-      const expensePayload = {
-        organization_id: organizationId,
-        shift_id: currentShift?.id || null,
-        amount: amt,
-        category: category,
-        notes: notes.trim(),
-        date: new Date().toISOString().split('T')[0],
-        cost_type: selectedCat?.cost_type || 'variable'
-      };
+      const { error } = await supabase
+        .from("expenses")
+        .insert({
+          organization_id: organizationId,
+          description: description || null,
+          category: category || null,
+          amount: parseFloat(amount),
+          cost_type: costType,
+          date: expenseDate, // Uses the selected date
+        })
+        .select();
 
-      // NEW: Check if online
-      if (navigator.onLine) {
-        // Try to save to Supabase
-        const { error } = await supabase.from("expenses").insert(expensePayload);
+      if (error) throw error;
 
-        if (error) {
-          // If online but DB error (e.g., constraint), throw to show alert
-          throw error;
-        }
-        // Success
-        setAmount("");
-        setNotes("");
-        loadInitialData();
-      } else {
-        // OFFLINE: Save to local IndexedDB
-        await db.expensesQueue.add({
-          payload: expensePayload,
-          status: 'pending',
-          createdAt: new Date()
-        });
-        
-        alert("You are offline. Expense saved locally and will sync automatically when connected.");
-        setAmount("");
-        setNotes("");
-        // Note: We don't reload from server here because we are offline
-      }
-      
+      // Reset form but keep the date and category for fast entry
+      setDescription("");
+      setAmount("");
+      fetchExpenses();
     } catch (err: any) {
-      // Fallback: If online save failed due to network, try saving locally
-      if (!navigator.onLine || err.message?.includes('network')) {
-         // Re-check payload construction just in case
-         const selectedCat = categories.find(c => c.name === category);
-         const expensePayload = {
-            organization_id: organizationId,
-            shift_id: currentShift?.id || null,
-            amount: amt,
-            category: category,
-            notes: notes.trim(),
-            date: new Date().toISOString().split('T')[0],
-            cost_type: selectedCat?.cost_type || 'variable'
-         };
-
-         await db.expensesQueue.add({
-          payload: expensePayload,
-          status: 'pending',
-          createdAt: new Date()
-        });
-        alert("Network error. Expense saved locally.");
-        setAmount("");
-        setNotes("");
-      } else {
-        alert(`Error: ${err.message}`);
-      }
+      console.error(err);
+      alert(err.message || "Failed to save expense");
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-8">Loading...</div>;
+  const handleDeleteExpense = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this expense?")) return;
+
+    try {
+      const { error } = await supabase.from("expenses").delete().eq("id", id);
+      if (error) throw error;
+      fetchExpenses();
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to delete");
+    }
+  };
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="flex-1 bg-[#fafafa] p-5 overflow-y-auto">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {currentShift ? "Recording expenses for active shift." : "No active shift. Expenses will be unassigned."}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-400">Total Expenses</p>
-          <p className="text-xl font-bold text-red-600">
-            {formatCurrency(expenses.reduce((sum, e) => sum + (e.amount || 0), 0))}
-          </p>
+          <h1 className="text-sm font-semibold text-gray-900">Expense Management</h1>
+          <p className="text-[10px] text-gray-500 mt-0.5">Track and categorize outflows</p>
         </div>
       </div>
 
       {/* Add Expense Form */}
-      <div className="bg-white rounded-xl border shadow-sm p-6 space-y-4">
-        <h2 className="font-bold text-lg">New Expense</h2>
+      <div className="bg-white border border-gray-200 rounded-lg p-5 mb-5 shadow-sm">
+        <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-wide mb-4">Record New Expense</h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Category</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full p-3 border rounded-lg bg-white"
-            >
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.name}>{cat.name}</option>
-              ))}
-            </select>
+        <form onSubmit={handleAddExpense} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-1.5">Date</label>
+              <input
+                type="date"
+                value={expenseDate}
+                onChange={(e) => setExpenseDate(e.target.value)}
+                className="w-full p-2 border border-gray-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-black focus:border-black outline-none"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-1.5">Amount (Ksh)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold text-right focus:ring-1 focus:ring-black focus:border-black outline-none"
+                required
+              />
+            </div>
           </div>
-          
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-1.5">Category</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full p-2 border border-gray-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-black focus:border-black outline-none bg-white"
+              >
+                <option value="Salaries">Salaries</option>
+                <option value="Rent">Rent</option>
+                <option value="Utilities">Utilities</option>
+                <option value="Supplies">Supplies</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Transport">Transport</option>
+                <option value="Marketing">Marketing</option>
+                <option value="General">General</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-1.5">Cost Type</label>
+              <div className="flex border border-gray-200 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCostType("fixed")}
+                  className={`flex-1 py-2 text-[11px] font-bold transition-colors ${costType === 'fixed' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                >
+                  Fixed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCostType("variable")}
+                  className={`flex-1 py-2 text-[11px] font-bold transition-colors border-l border-gray-200 ${costType === 'variable' ? 'bg-orange-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                >
+                  Variable
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div>
-            <label className="block text-sm font-medium mb-1">Amount (Ksh)</label>
+            <label className="block text-[10px] font-medium text-gray-500 mb-1.5">Description (Optional)</label>
             <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="w-full p-3 border rounded-lg"
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g., April staff salaries..."
+              className="w-full p-2 border border-gray-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-black focus:border-black outline-none"
             />
           </div>
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Description / Notes</label>
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g., Bought cleaning supplies"
-            className="w-full p-3 border rounded-lg"
-          />
-        </div>
-
-        <button
-          onClick={handleSave}
-          disabled={saving || !amount}
-          className="w-full py-3 bg-black text-white rounded-lg font-bold disabled:bg-gray-300"
-        >
-          {saving ? "Saving..." : "Save Expense"}
-        </button>
+          <button
+            type="submit"
+            disabled={saving || !amount}
+            className="w-full py-3 bg-black text-white rounded-lg text-xs font-bold hover:bg-gray-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {saving ? "Saving..." : "Record Expense"}
+          </button>
+        </form>
       </div>
 
       {/* Expenses List */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="p-4 border-b bg-gray-50">
-          <h2 className="font-bold text-gray-800">Recent Expenses</h2>
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+          <h2 className="text-[11px] font-semibold text-gray-700">Recent Expenses</h2>
+          <span className="text-[10px] text-gray-400 font-mono">{expenses.length} records</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+        
+        {loading ? (
+          <div className="p-10 text-center text-[11px] text-gray-400">Loading...</div>
+        ) : expenses.length === 0 ? (
+          <div className="p-10 text-center text-[11px] text-gray-400">No expenses recorded yet.</div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-[10px] uppercase text-gray-500">
               <tr>
-                <th className="p-3 text-left">Time</th>
+                <th className="p-3 text-left">Date</th>
+                <th className="p-3 text-left">Description</th>
                 <th className="p-3 text-left">Category</th>
-                <th className="p-3 text-left">Notes</th>
+                <th className="p-3 text-left">Type</th>
                 <th className="p-3 text-right">Amount</th>
+                <th className="p-3 text-center w-16">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
-              {expenses.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-8 text-center text-gray-400">
-                    No expenses recorded.
+            <tbody className="divide-y divide-gray-50">
+              {expenses.map((exp) => (
+                <tr key={exp.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="p-3 text-gray-700 font-mono">{exp.date}</td>
+                  <td className="p-3 text-gray-800 font-medium truncate max-w-[200px]">{exp.description || "No description"}</td>
+                  <td className="p-3">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {exp.category || "General"}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${exp.cost_type === 'fixed' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
+                      {(exp.cost_type || 'variable').toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right font-bold text-red-600 font-mono">- {formatCurrency(exp.amount)}</td>
+                  <td className="p-3 text-center">
+                    <button
+                      onClick={() => handleDeleteExpense(exp.id)}
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                      title="Delete"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-9h9.968M9.26 9m9.968 9h-9.968M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.26 9v.008" />
+                      </svg>
+                    </button>
                   </td>
                 </tr>
-              ) : (
-                expenses.map((exp) => (
-                  <tr key={exp.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-gray-600">{new Date(exp.created_at).toLocaleTimeString()}</td>
-                    <td className="p-3 font-medium text-gray-800">{exp.category || 'General'}</td>
-                    <td className="p-3 text-gray-500">{exp.notes || '-'}</td>
-                    <td className="p-3 text-right font-bold text-red-600">- {formatCurrency(exp.amount)}</td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
-        </div>
+        )}
       </div>
     </div>
   );

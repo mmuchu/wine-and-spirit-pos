@@ -6,389 +6,156 @@ import { createClient } from "@/lib/supabase/client";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
 
+interface TimelineEvent {
+  id: string; time: string; type: "ORDER" | "EXPENSE"; method?: string;
+  amount?: number; details: string; created_at: string;
+}
+interface AuditData { total_sales: number; cash_sales: number; mpesa_sales: number; total_expenses: number; timeline: TimelineEvent[]; }
+
 export default function DailyAuditPage() {
   const supabase = createClient();
   const { organizationId } = useOrganization();
-  
-  const [shifts, setShifts] = useState<any[]>([]);
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [data, setData] = useState<AuditData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedShift, setSelectedShift] = useState<any | null>(null);
-  
-  const [summary, setSummary] = useState({ sales: 0, expenses: 0, cash: 0, mpesa: 0, stockIn: 0 });
-  const [activities, setActivities] = useState<any[]>([]);
-  
-  // NEW: State for raw data to use in breakdowns
-  const [salesData, setSalesData] = useState<any[]>([]);
-  const [expensesData, setExpensesData] = useState<any[]>([]);
-  
-  // NEW: State for Modal
-  const [activeBreakdown, setActiveBreakdown] = useState<'sales' | 'expenses' | 'cash' | 'mpesa' | null>(null);
+  const [activeModal, setActiveModal] = useState<'TOTAL' | 'EXPENSES' | null>(null);
 
   useEffect(() => {
-    if (organizationId) fetchAuditData();
+    if (!organizationId) return;
+    fetchAuditData();
   }, [organizationId, date]);
 
   const fetchAuditData = async () => {
     if (!organizationId) return;
     setLoading(true);
     try {
-      const start = new Date(date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(date);
-      end.setHours(23, 59, 59, 999);
-
-      // 1. Fetch Sales
-      const { data: sales } = await supabase
-        .from('sales')
-        .select('id, created_at, total_amount, payment_method, status')
-        .eq('organization_id', organizationId)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-
-      // 2. Fetch Expenses
-      const { data: expenses } = await supabase
-        .from('expenses')
-        .select('id, created_at, amount, category, notes')
-        .eq('organization_id', organizationId)
-        .gte('date', date)
-        .lte('date', date);
-        
-      // Store raw data for modals
-      setSalesData(sales || []);
-      setExpensesData(expenses || []);
-
-      // 3. Fetch Shifts
-      const { data: shiftsData } = await supabase
-        .from('shifts')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .or(`opened_at.gte.${start.toISOString()},closed_at.gte.${start.toISOString()}`);
-
-      // 4. FETCH STOCK MOVEMENTS
-      const { data: stockMovements } = await supabase
-        .from('stock_movements')
-        .select('id, created_at, quantity, type, products(name)')
-        .eq('organization_id', organizationId)
-        .eq('type', 'purchase')
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-
-      // Calculate Summary
-      const salesTotal = sales?.reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
-      const expensesTotal = expenses?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
-      const cashTotal = sales?.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
-      const mpesaTotal = sales?.filter(s => s.payment_method === 'mpesa').reduce((sum, s) => sum + (s.total_amount || 0), 0) || 0;
-      const stockInTotal = stockMovements?.reduce((sum, m) => sum + (m.quantity || 0), 0) || 0;
-
-      setSummary({
-        sales: salesTotal,
-        expenses: expensesTotal,
-        cash: cashTotal,
-        mpesa: mpesaTotal,
-        stockIn: stockInTotal
-      });
-
-      const timeline: any[] = [];
-
-      // Build Timeline - SALES
-      sales?.forEach(s => {
-        timeline.push({
-          time: new Date(s.created_at),
-          type: 'sale',
-          icon: '💵',
-          title: `Sale (${s.payment_method?.toUpperCase() || 'UNKNOWN'})`,
-          description: `Total: ${formatCurrency(s.total_amount)}`,
-          amount: s.total_amount
-        });
-      });
-
-      // Build Timeline - EXPENSES
-      expenses?.forEach(e => {
-        timeline.push({
-          time: new Date(e.created_at),
-          type: 'expense',
-          icon: '📉',
-          title: `Expense: ${e.category || 'General'}`,
-          description: e.notes || 'No note',
-          amount: -e.amount
-        });
-      });
-
-      // Build Timeline - STOCK IN
-      stockMovements?.forEach(m => {
-        timeline.push({
-          time: new Date(m.created_at),
-          type: 'stock_in',
-          icon: '📦',
-          title: `Stock Added: ${(m as any).products?.name || 'Unknown Product'}`,
-          description: `Quantity: +${m.quantity}`,
-          amount: 0
-        });
-      });
-
-      // Build Timeline - SHIFTS
-      shiftsData?.forEach(sh => {
-        if (new Date(sh.opened_at) >= start) {
-          timeline.push({
-            time: new Date(sh.opened_at),
-            type: 'shift_open',
-            icon: '🟢',
-            title: 'Shift Opened',
-            description: `Opening Cash: ${formatCurrency(sh.opening_cash || 0)}`,
-            amount: 0
-          });
-        }
-        if (sh.closed_at && new Date(sh.closed_at) >= start) {
-          timeline.push({
-            time: new Date(sh.closed_at),
-            type: 'shift_close',
-            icon: '🔴',
-            title: 'Shift Closed',
-            description: `Closing Cash: ${formatCurrency(sh.closing_cash || 0)}`,
-            amount: 0
-          });
-        }
-      });
-
-      timeline.sort((a, b) => b.time.getTime() - a.time.getTime());
+      const targetDate = new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { timeZone: 'Africa/Nairobi' });
       
-      setActivities(timeline);
-      setShifts(shiftsData || []);
+      // Fetch from "orders" table (The correct table!)
+      const { data: ordersData, error: ordersError } = await supabase
+        .from("orders")
+        .select("id, created_at, total, status, payment_method")
+        .eq("organization_id", organizationId)
+        .order('created_at', { ascending: false })
+        .limit(500);
 
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+      if (ordersError) console.error(ordersError);
+
+      // Filter locally for Nairobi timezone
+      const filteredOrders = (ordersData || []).filter(order => 
+        new Date(order.created_at).toLocaleDateString('en-US', { timeZone: 'Africa/Nairobi' }) === targetDate
+      );
+
+      const orders = filteredOrders.map(order => ({
+        id: order.id,
+        time: new Date(order.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        type: "ORDER" as const,
+        method: order.payment_method?.toUpperCase() || "ORDER",
+        amount: order.total,
+        details: `Order (${order.status || 'completed'})`,
+        created_at: order.created_at
+      }));
+
+      // Fetch Expenses
+      const { data: expensesData } = await supabase
+        .from("expenses").select("id, created_at, amount, category, description") 
+        .eq("organization_id", organizationId).eq('date', date);
+
+      const expenses = (expensesData || []).map(exp => ({
+        id: exp.id, time: "N/A", type: "EXPENSE" as const, amount: exp.amount,
+        details: exp.description || exp.category || "Recorded Expense", created_at: exp.created_at || ""
+      }));
+
+      const timeline = [...orders, ...expenses].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      // Note: Cash/M-Pesa split might be 0 if payment_method isn't saved in orders table
+      const totalSales = orders.reduce((sum, o) => sum + (o.amount || 0), 0);
+      const cashSales = orders.filter(o => o.method === 'CASH').reduce((sum, o) => sum + (o.amount || 0), 0);
+      const mpesaSales = orders.filter(o => o.method === 'MPESA').reduce((sum, o) => sum + (o.amount || 0), 0);
+      const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      setData({ total_sales: totalSales, cash_sales: cashSales, mpesa_sales: mpesaSales, total_expenses: totalExpenses, timeline });
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  // NEW: Helper to render the breakdown modal content
-  const renderBreakdownContent = () => {
-    if (!activeBreakdown) return null;
-
-    let data: any[] = [];
-    let title = "";
-    let headers = ["Time", "Details", "Amount"];
-
-    if (activeBreakdown === 'sales') {
-      title = "All Sales Breakdown";
-      data = salesData;
-    } else if (activeBreakdown === 'expenses') {
-      title = "Expenses Breakdown";
-      data = expensesData;
-      headers = ["Time", "Category", "Note", "Amount"];
-    } else if (activeBreakdown === 'cash') {
-      title = "Cash Sales Breakdown";
-      data = salesData.filter(s => s.payment_method === 'cash');
-    } else if (activeBreakdown === 'mpesa') {
-      title = "M-Pesa Sales Breakdown";
-      data = salesData.filter(s => s.payment_method === 'mpesa');
-    }
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
-          <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-            <h2 className="text-xl font-bold">{title}</h2>
-            <button onClick={() => setActiveBreakdown(null)} className="text-gray-500 hover:text-black text-2xl font-bold">&times;</button>
-          </div>
-          
-          <div className="p-4 overflow-auto flex-1">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100 text-xs uppercase text-gray-500 sticky top-0">
-                <tr>
-                  {headers.map(h => <th key={h} className="p-3 text-left">{h}</th>)}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.length === 0 ? (
-                  <tr><td colSpan={headers.length} className="p-4 text-center text-gray-400">No data found.</td></tr>
-                ) : (
-                  data.map((item) => (
-                    <tr key={item.id}>
-                      <td className="p-3 text-gray-600">{formatTime(new Date(item.created_at))}</td>
-                      
-                      {activeBreakdown === 'expenses' ? (
-                        <>
-                          <td className="p-3 font-medium">{item.category || 'General'}</td>
-                          <td className="p-3 text-gray-500 truncate max-w-[200px]" title={item.notes}>{item.notes || '-'}</td>
-                          <td className="p-3 text-right font-bold text-red-600">- {formatCurrency(item.amount)}</td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="p-3 text-gray-500">{item.payment_method?.toUpperCase()}</td>
-                          <td className="p-3 text-right font-bold text-green-600">+ {formatCurrency(item.total_amount)}</td>
-                        </>
-                      )}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+  const getFilteredData = () => {
+    if (!data) return [];
+    return data.timeline.filter(t => 
+      (activeModal === 'EXPENSES' && t.type === 'EXPENSE') ||
+      (activeModal === 'TOTAL' && t.type === 'ORDER') ||
+      (!activeModal && t.type === 'ORDER')
     );
   };
 
-  if (loading) return <div className="p-8">Loading Audit...</div>;
-
-  // --- Detail View ---
-  if (selectedShift) {
-    return (
-      <div className="p-6 space-y-6">
-        <button onClick={() => setSelectedShift(null)} className="text-sm text-gray-500 hover:text-black flex items-center gap-1">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-          Back to List
-        </button>
-
-        <div className="bg-white p-6 rounded-xl border shadow-sm space-y-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-xl font-bold">Shift Audit Report</h2>
-              <p className="text-gray-500 text-sm">Opened: {new Date(selectedShift.opened_at).toLocaleString()}</p>
-              <p className="text-gray-500 text-sm">Closed: {selectedShift.closed_at ? new Date(selectedShift.closed_at).toLocaleString() : 'Active'}</p>
-            </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${selectedShift.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-              {selectedShift.status.toUpperCase()}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 pt-4 border-t">
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <p className="text-xs text-gray-400 font-bold uppercase">Opening Cash</p>
-              <p className="text-lg font-bold">{formatCurrency(selectedShift.opening_cash || 0)}</p>
-            </div>
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <p className="text-xs text-gray-400 font-bold uppercase">Closing Cash</p>
-              <p className="text-lg font-bold">{formatCurrency(selectedShift.closing_cash || 0)}</p>
-            </div>
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <p className="text-xs text-gray-400 font-bold uppercase">User ID</p>
-              <p className="text-lg font-bold font-mono truncate">{selectedShift.user_id?.substring(0,8)}...</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="p-4 border-b"><h3 className="font-bold">Stock Variance</h3></div>
-          {selectedShift.closing_stock ? (
-             <div className="overflow-x-auto">
-               <table className="w-full text-sm">
-                 <thead className="bg-gray-50">
-                   <tr>
-                     <th className="p-3 text-left font-semibold">Product ID</th>
-                     <th className="p-3 text-center font-semibold">Opening</th>
-                     <th className="p-3 text-center font-semibold">Closing</th>
-                     <th className="p-3 text-center font-semibold">Variance</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y">
-                   {Object.entries(selectedShift.closing_stock).map(([id, closing]: [string, any]) => {
-                      const opening = selectedShift.opening_stock?.[id] || 0;
-                      const variance = opening - closing;
-                      return (
-                        <tr key={id} className={variance !== 0 ? 'bg-red-50' : ''}>
-                          <td className="p-3 font-mono text-gray-500 text-xs">{id.substring(0, 8)}...</td>
-                          <td className="p-3 text-center">{opening}</td>
-                          <td className="p-3 text-center font-bold">{closing}</td>
-                          <td className={`p-3 text-center font-bold ${variance !== 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                            {variance > 0 ? `+${variance}` : variance}
-                          </td>
-                        </tr>
-                      );
-                   })}
-                 </tbody>
-               </table>
-             </div>
-          ) : (
-            <div className="p-8 text-center text-gray-400">No stock data recorded.</div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // --- List View ---
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      {/* Render Modal if active */}
-      {renderBreakdownContent()}
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Daily Audit</h1>
-          <p className="text-gray-500 text-sm mt-1">Record of all activities for {date}.</p>
-        </div>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border p-2 rounded-lg shadow-sm" />
+    <div className="flex-1 bg-[#fafafa] p-5 overflow-y-auto text-gray-800">
+      <div className="flex items-center justify-between mb-5">
+        <div><h1 className="text-sm font-semibold text-gray-900">Daily Audit Log</h1><p className="text-[10px] text-gray-500 mt-0.5">Financial reconciliation & activity</p></div>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-white border border-gray-200 text-[11px] font-medium text-gray-700 px-2.5 py-1.5 rounded-md outline-none focus:ring-1 focus:ring-black/10" />
       </div>
 
-      {/* Summary Cards - NOW CLICKABLE */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div 
-          onClick={() => setActiveBreakdown('sales')} 
-          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-blue-400 transition-colors"
-        >
-          <p className="text-xs text-gray-400 font-bold uppercase">Total Sales</p>
-          <p className="text-lg font-extrabold text-gray-900 mt-1">{formatCurrency(summary.sales)}</p>
-        </div>
-        <div 
-          onClick={() => setActiveBreakdown('cash')} 
-          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-green-400 transition-colors"
-        >
-          <p className="text-xs text-gray-400 font-bold uppercase">Cash</p>
-          <p className="text-lg font-extrabold text-green-600 mt-1">{formatCurrency(summary.cash)}</p>
-        </div>
-        <div 
-          onClick={() => setActiveBreakdown('mpesa')} 
-          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-blue-400 transition-colors"
-        >
-          <p className="text-xs text-gray-400 font-bold uppercase">M-Pesa</p>
-          <p className="text-lg font-extrabold text-blue-600 mt-1">{formatCurrency(summary.mpesa)}</p>
-        </div>
-        <div 
-          onClick={() => setActiveBreakdown('expenses')} 
-          className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-red-400 transition-colors"
-        >
-          <p className="text-xs text-gray-400 font-bold uppercase">Expenses</p>
-          <p className="text-lg font-extrabold text-red-600 mt-1">{formatCurrency(summary.expenses)}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
-          <p className="text-xs text-gray-400 font-bold uppercase">Stock Added</p>
-          <p className="text-lg font-extrabold text-purple-600 mt-1">+{summary.stockIn} units</p>
-        </div>
-      </div>
+      {loading ? <div className="grid grid-cols-3 gap-3">{[...Array(3)].map((_, i) => <div key={i} className="bg-white border border-gray-100 rounded-lg h-20 animate-pulse" />)}</div> : data && (
+        <>
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <MetricCard label="Total Revenue" value={data.total_sales} sub="Gross for the day" onClick={() => setActiveModal('TOTAL')} />
+            <MetricCard label="Expenses" value={data.total_expenses} sub="Outflows" accent="text-red-600" onClick={() => setActiveModal('EXPENSES')} />
+            <div className="bg-white border border-gray-200 rounded-lg p-3.5 flex flex-col justify-between h-[76px]">
+              <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Net</span>
+              <p className={`text-sm font-bold font-mono tabular-nums ${data.total_sales - data.total_expenses >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(data.total_sales - data.total_expenses)}</p>
+            </div>
+          </div>
 
-      {/* Activity Timeline */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="p-4 border-b"><h3 className="font-bold text-gray-800">Activity Timeline</h3></div>
-        <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
-          {activities.length === 0 ? (
-            <div className="text-center text-gray-400 py-10">No activity recorded for this date.</div>
-          ) : (
-            activities.map((item, index) => (
-              <div key={index} className="flex items-start gap-4 pb-4 border-b last:border-b-0">
-                <div className="text-2xl">{item.icon}</div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center">
-                    <p className="font-bold text-gray-800">{item.title}</p>
-                    <span className={`font-bold text-sm ${item.amount < 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                      {item.amount !== 0 ? formatCurrency(item.amount) : ''}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500">{item.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">{formatTime(item.time)}</p>
+          <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-[11px] font-semibold text-gray-700">Activity Ledger</h2>
+              <span className="text-[10px] text-gray-400 font-mono">{data.timeline.length} entries</span>
+            </div>
+            <div className="divide-y divide-gray-50 max-h-[calc(100vh-320px)] overflow-y-auto">
+              {data.timeline.length === 0 ? <div className="text-center py-10 text-[11px] text-gray-400">No activity recorded for this date.</div> : data.timeline.map((event) => (
+                <div key={event.id} className="flex items-baseline gap-3 px-4 py-2.5 hover:bg-gray-50/50">
+                  <span className="text-[10px] font-mono text-gray-400 w-16 shrink-0">{event.time}</span>
+                  <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm w-14 text-center shrink-0 ${event.type === "EXPENSE" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>{event.type === "EXPENSE" ? "EXP" : event.method}</span>
+                  <span className="text-[11px] text-gray-600 flex-1 truncate">{event.details}</span>
+                  <span className={`text-[11px] font-mono font-semibold shrink-0 ${event.type === "EXPENSE" ? "text-red-600" : "text-gray-900"}`}>{event.type === "EXPENSE" ? "-" : "+"}{formatCurrency(event.amount || 0)}</span>
                 </div>
-              </div>
-            ))
-          )}
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {activeModal && data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] border border-gray-200" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <h3 className="text-xs font-semibold text-gray-900">{activeModal === 'TOTAL' ? 'Revenue Breakdown' : 'Expenses Breakdown'}</h3>
+              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 text-lg font-bold">&times;</button>
+            </div>
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              {getFilteredData().length === 0 ? <div className="text-center py-8 text-[11px] text-gray-400">No transactions found.</div> : getFilteredData().map((item) => (
+                <div key={item.id} className="flex items-center justify-between px-5 py-2.5">
+                  <span className="text-[11px] text-gray-700 truncate pr-4">{item.details}</span>
+                  <span className={`text-[11px] font-mono font-semibold shrink-0 ${item.type === 'EXPENSE' ? 'text-red-600' : 'text-green-700'}`}>{item.amount ? formatCurrency(item.amount) : '-'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-200 bg-gray-50/50 flex items-center justify-between shrink-0">
+              <span className="text-[10px] text-gray-500">Sum: {getFilteredData().length}</span>
+              <span className="text-xs font-bold font-mono text-gray-900">{formatCurrency(getFilteredData().reduce((s, i) => s + (i.amount || 0), 0))}</span>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
+
+const MetricCard = ({ label, value, sub, accent = "text-gray-900", onClick }: { label: string; value: number; sub: string; accent?: string; onClick: () => void }) => (
+  <div className="bg-white border border-gray-200 rounded-lg p-3.5 flex flex-col justify-between h-[76px] cursor-pointer hover:bg-gray-50 transition-colors group" onClick={onClick}>
+    <div className="flex justify-between items-start">
+      <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+      <svg className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+    </div>
+    <div><p className={`text-sm font-bold font-mono tabular-nums ${accent}`}>{formatCurrency(value)}</p><p className="text-[10px] text-gray-400 mt-0.5">{sub}</p></div>
+  </div>
+);

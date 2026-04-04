@@ -1,4 +1,5 @@
- "use client";
+ // src/app/inventory/page.tsx
+"use client";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import { stockService } from "@/lib/services/stockService";
 import { useOrganization } from "@/lib/context/OrganizationContext";
 import { formatCurrency } from "@/components/pos/utils";
 import { LowStockAlert } from "@/components/inventory/LowStockAlert";
+// FIX: Corrected import casing to match the file location
 import { BarcodeScanner } from "@/components/pos/BarcodeScanner";
 
 export default function InventoryPage() {
@@ -68,8 +70,9 @@ export default function InventoryPage() {
       if (error) throw error;
       setProducts(data || []);
       setFilteredProducts(data || []);
-    } catch (err) {
-      console.error("Error fetching products:", err);
+    } catch (err: any) {
+      // FIX: Improved error logging to see the actual message
+      console.error("Error fetching products:", err?.message || err);
     } finally {
       setLoading(false);
     }
@@ -80,8 +83,8 @@ export default function InventoryPage() {
     try {
       const data = await stockService.getRecentMovements(organizationId);
       setRecentMovements(data || []);
-    } catch (err) {
-      console.error("Error fetching movements", err);
+    } catch (err: any) {
+      console.error("Error fetching movements:", err?.message || err);
     }
   };
 

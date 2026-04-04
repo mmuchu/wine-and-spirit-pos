@@ -1,5 +1,4 @@
- // src/app/reports/page.tsx
-"use client";
+ "use client";
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -28,9 +27,10 @@ export default function SalesReportPage() {
       const end = new Date(date);
       end.setHours(23,59,59,999);
 
+      // FIX: Changed from 'sales' to 'orders'
       const { data, error } = await supabase
-        .from('sales')
-        .select('*')
+        .from('orders')
+        .select('id, created_at, total, payment_method, status')
         .eq('organization_id', organizationId)
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString())
@@ -48,7 +48,7 @@ export default function SalesReportPage() {
   const handleExport = () => {
     const data = sales.map(s => ({
       Time: new Date(s.created_at).toLocaleTimeString(),
-      Total: s.total_amount,
+      Total: s.total, // FIX: Changed from total_amount
       Method: s.payment_method,
       Status: s.status
     }));
@@ -76,14 +76,12 @@ export default function SalesReportPage() {
       </div>
 
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        {/* Apply table-container and overflow-x-auto */}
         <div className="table-container overflow-x-auto">
           <table className="w-full text-sm sticky-header">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left p-3 font-semibold">Time</th>
                 <th className="text-left p-3 font-semibold">Receipt #</th>
-                <th className="text-left p-3 font-semibold">Customer</th>
                 <th className="text-center p-3 font-semibold">Method</th>
                 <th className="text-center p-3 font-semibold">Status</th>
                 <th className="text-right p-3 font-semibold">Amount</th>
@@ -91,24 +89,23 @@ export default function SalesReportPage() {
             </thead>
             <tbody className="divide-y">
               {sales.length === 0 ? (
-                <tr><td colSpan={6} className="p-8 text-center text-gray-400">No sales found.</td></tr>
+                <tr><td colSpan={5} className="p-8 text-center text-gray-400">No sales found.</td></tr>
               ) : (
                 sales.map((sale) => (
                   <tr key={sale.id} className="hover:bg-gray-50">
                     <td className="p-3">{new Date(sale.created_at).toLocaleTimeString()}</td>
                     <td className="p-3 font-mono text-xs">{sale.id.slice(0, 8).toUpperCase()}</td>
-                    <td className="p-3">{sale.customer_name || '-'}</td>
                     <td className="p-3 text-center">
                       <span className={`px-2 py-0.5 rounded text-xs font-bold ${sale.payment_method === 'mpesa' ? 'bg-green-50 text-green-700' : 'bg-gray-100'}`}>
                         {sale.payment_method}
                       </span>
                     </td>
                     <td className="p-3 text-center">
-                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${sale.status === 'completed' ? 'bg-blue-50 text-blue-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-50 text-blue-700">
                         {sale.status}
                       </span>
                     </td>
-                    <td className="p-3 text-right font-bold">{formatCurrency(sale.total_amount)}</td>
+                    <td className="p-3 text-right font-bold">{formatCurrency(sale.total)}</td>
                   </tr>
                 ))
               )}
